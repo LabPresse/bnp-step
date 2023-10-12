@@ -12,9 +12,9 @@ BNP-Step was developed in Python 3.11 using numpy 1.24.3, scipy 1.10.1, matplotl
 conda env create -f stepfind.yml
 ```
 
-Once your environment is set up, you can run BNP-Step through the command line, or through the included Jupyter notebook, RunBNPStep.ipynb.
+Once your environment is set up, take a look at the tutorial file, BNPStepTutorial.ipynb, to help you get started. Alternatively, if you're ready to jump right in, you can use RunBNPStep.ipynb. 
 
-In the near future, we will add options for running BNP-Step using a GUI interface.
+In the near future, we plan to add an option for running BNP-Step using a simple GUI.
 
 ## Comparisons to other methods
 
