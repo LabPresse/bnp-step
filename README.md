@@ -4,13 +4,20 @@ This repository contains the Python scripts and helper functions for BNP-Step, a
 
 ## Usage
 
-Run from Jupyter Notebook or from GUI (NYI)
-
-BNP-Step was developed in Python 3.11 using numpy 1.24.3, scipy 1.10.1, matplotlib 3.7.1, and pandas 1.5.3. Conda users can replicate the development environment by creating a new environment using the included environment.yml file:
+BNP-Step was developed in Python 3.11 using numpy 1.24.3, scipy 1.10.1, matplotlib 3.7.1, and pandas 1.5.3. Conda users can replicate the development environment by creating a new environment using the included stepfind.yml file:
 
 ```python
-conda env create -f environment.yml
+conda env create -f stepfind.yml
 ```
+
+Once your environment is set up, you can run BNP-Step in three ways:
+
+1. un from Jupyter Notebook or from GUI (NYI)
+
+2. Run2
+
+3. Run3
+
 
 ## Comparisons to other methods
 
