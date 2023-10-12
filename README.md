@@ -4,13 +4,11 @@ This repository contains the Python scripts and helper functions for BNP-Step, a
 
 ## Usage
 
-Requirements
-
 Run from Jupyter Notebook or from GUI (NYI)
 
-Developed in environment...
+BNP-Step was developed in Python 3.11 using numpy, scipy, pickle, matplotlib, and pandas.
 
-## Comparing to BIC Method
+## Comparisons to other methods
 
 Also includes implementation of KV method and helper utilities to aid comparison to iHMM
 
