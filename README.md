@@ -21,7 +21,6 @@ git clone https://github.com/arojewski/bnp-step.git
 ```
 
 This will create a folder in the current directory containing the BNP-Step code and two Jupyter notebooks. That's it! You're now ready to use BNP-Step.
-```
 
 ## Usage
 
