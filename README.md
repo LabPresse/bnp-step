@@ -4,13 +4,26 @@
 
 This repository contains the Python scripts and helper functions for BNP-Step, a computational method described in [An accurate probabilistic step finder for time-series analysis, bioRxiv 2023](https://www.biorxiv.org/content/10.1101/2023.09.19.558535v1).
 
-## Usage
+## Installation
 
-BNP-Step was developed in Python 3.11 using numpy 1.24.3, scipy 1.10.1, matplotlib 3.7.1, and pandas 1.5.3. Conda users can replicate the development environment by creating a new environment using the included stepfind.yml file:
+BNP-Step was developed in Python 3.11, and uses numpy 1.24.3, scipy 1.10.1, matplotlib 3.7.1, and pandas 1.5.3. For Anaconda users, we've included stepfind.yml which can be used to recreate our development environment:
 
-```python
+```
 conda env create -f stepfind.yml
 ```
+
+Alternatively, you can install the required packages on your own using pip. However, we caution that BNP-Step has not currently been tested using versions of Python other than 3.11 or versions of numpy, scipy, matplotlib, and pandas other than those specified.
+
+Once your environment has been set up, clone the bnp-step repository by running the following from the command line in the directory of your choice:
+
+```
+git clone https://github.com/arojewski/bnp-step.git
+```
+
+This will create a folder in the current directory containing the BNP-Step code and two Jupyter notebooks. That's it! You're now ready to use BNP-Step.
+```
+
+## Usage
 
 Once your environment is set up, take a look at the tutorial file, BNPStepTutorial.ipynb, to help you get started. Alternatively, if you're ready to jump right in, you can use RunBNPStep.ipynb. 
 
