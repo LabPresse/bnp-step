@@ -10,21 +10,14 @@ BNP-Step was developed in Python 3.11 using numpy 1.24.3, scipy 1.10.1, matplotl
 conda env create -f stepfind.yml
 ```
 
-Once your environment is set up, you can run BNP-Step in three ways:
+Once your environment is set up, you can run BNP-Step through the command line, or through the included Jupyter notebook, RunBNPStep.ipynb.
 
-1. un from Jupyter Notebook or from GUI (NYI)
-
-2. Run2
-
-3. Run3
-
+In the near future, we will add options for running BNP-Step using a GUI interface.
 
 ## Comparisons to other methods
 
-Also includes implementation of KV method and helper utilities to aid comparison to iHMM
+If you would like to compare results from BNP-Step to a BIC-based method or to an iHMM, we plan to include several functions and utilities to facilitate doing so.
 
 ## Questions? Contact us!
 
-BNP-Step is a work in progress. Further documentation will be provided as it is created. If you require assistance or would like more details, please do not hesitate to contact us at
-
-For further details or to report bugs contact: arojewsk@asu.edu or spresse@asu.edu
+BNP-Step is a work in progress. Further documentation will be provided as it is created. If you require assistance or would like more details, please do not hesitate to contact us at arojewsk@asu.edu or spresse@asu.edu
