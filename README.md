@@ -30,7 +30,7 @@ In the near future, we plan to add an option for running BNP-Step using a simple
 
 ## Comparisons to other methods
 
-If you would like to compare results from BNP-Step to a BIC-based method or to an iHMM, we plan to include several functions and utilities to facilitate doing so.
+If you would like to compare results from BNP-Step to a BIC-based method, we have included an implementation of the BIC-based method we compare to in our paper. In the near future, we plan to also include utilities to import results from the iHMM we compare to.
 
 ## Questions? Contact us!
 
