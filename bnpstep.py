@@ -14,6 +14,7 @@ import numpy as np
 import bnpinputs as bnpi
 import bnpsampler as sampler
 import bnpanalysis as bnpa
+import bic_tools as bic
 import pickle
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -136,9 +137,10 @@ class BNPStep:
         self.T_M = None
         self.post = None
 
-        # Dictionary to store results from alternative methods - this should not be used 
+        # Attributes to store results from alternative methods - these should not be used 
         # unless comparing to one of the other methods mentioned in the paper (iHMM or KV)
-        self.alt_method_results = {}
+        self.alt_method_results_kv = None
+        self.alt_method_results_ihmm = None
 
 
     def load_data(self, 
@@ -237,8 +239,7 @@ class BNPStep:
                 num_samples: int = 50000
                 ):
         """
-        Analyzes a dataset using BNP-Step and prints the resulting samples to a .pkl file. Samples are also
-        stored in object attributes.
+        Analyzes a dataset using BNP-Step and stores the results in object attributes.
 
         Arguments:
         data (Dict) -- Dictionary with minimum of two key, value pairs:
@@ -365,6 +366,11 @@ class BNPStep:
                                                     self.T_M, self.F_S, self.ETA, self.chi, self.h_ref, self.gamma,
                                                     self.phi, self.eta_ref, self.psi, self.F_ref)
             self.post = np.concatenate((self.post, np.asarray([poster])), axis=0)
+        
+        # Clean up posteriors - make all NaN's negative infinity, which will allow sorting by posterior
+        for x in range(len(self.post)):
+            if np.isnan(self.post[x]):
+                self.post[x] = -np.inf
 
         
     def results_to_file(self,
@@ -434,16 +440,160 @@ class BNPStep:
         self.post = results["posterior"]
 
 
-    def load_alt_method_results():
+    def run_BIC(self,
+                data : Optional[Dict] = None
+                ):
         """
-        Loads results from iHMM or KV method into self.alt_method_results for comparison plotting
+        Analyzes a dataset using an implementation of a BIC-based method and stores the
+        results in an object attribute for later analysis.
+
+        Arguments:
+        data (Dict) -- Dictionary with minimum of two key, value pairs:
+                            "data" : numpy array of observations
+                            "times" : numpy array of time points or None.
+                        If None is passed, the dataset assigned to self.dataset will be used.
+                        If None is passed and no dataset has been assigned to the object, an exception will be thrown.
+                        Default: None
         """
-        pass
+        if data is None:
+            if self.dataset is None:
+                raise ValueError("Cannot pass None as first argument when dataset has not been assigned via load_data()")
+            else:
+                data = self.dataset
+        else:
+            self.dataset = data
+        
+        # Input validation
+        if not isinstance(data['data'], np.ndarray):
+            raise TypeError(f"'data' value in dataset dictionary should be of type ndarray instead of {type(data['data'])}")
+        if data["times"] is not None:
+            if not isinstance(data['times'], np.ndarray):
+                raise TypeError(f"'times' value in dataset dictionary should be of type ndarray instead of {type(data['times'])}")
+        
+        # Get timepoints if we have them, otherwise pass a generic arange numpy array based on how many observations
+        # we have
+        if data["times"] is not None:
+            t_n = data["times"]
+        else:
+            t_n = np.arange(len(data["data"]))
+        
+        # Run method and store the results into a dict
+        jump_times, means, st_dev, bic_value = bic.GreedyBIC(data['data'], len(data['data']), t_n)
+
+        # Treat the last mean learned by KV as "F_bg" for compatibility with the graphing functions
+        background = means[-1]
+        means = means[:-1]
+
+        self.alt_method_results_kv = {"jump_times": jump_times, "means": means, "background": background, "st_dev": st_dev, "bic": bic_value}
+
+
+    def load_ihmm_results(self, 
+                          filename_mm : str, 
+                          filename_mmt : str,
+                          path = None
+                          ):
+        """
+        Loads results from iHMM method into self.alt_method_results_ihmm for comparison plotting
+        """
+        # Input validation
+        if not isinstance(filename_mm, str):
+                raise TypeError(f"filename_mm should be of type str instead of {type(filename_mm)}")
+        if not isinstance(filename_mmt, str):
+                raise TypeError(f"filename_mmt should be of type str instead of {type(filename_mmt)}")
+        # TODO: validate path
+
+        ihmm_mode_means = bnpa.load_ihmm_mode_means(filename_mm, path)
+
+        ihmm_mode_mean_trajectory =  bnpa.load_ihmm_mode_mean_trajectory(filename_mmt, path)
+
+        self.alt_method_results_ihmm = {"mode_means": ihmm_mode_means, "mode_mean_traj": ihmm_mode_mean_trajectory}
 
     
-    def plot_data(self):
-        # Plot data set using same format as visualization - NYI
-        pass
+    def plot_data(self,
+                  font_size : int = 16,
+                  datacolor : str = '#929591',
+                  x_label : str =  'x-values', 
+                  y_label : str =  'y-values',
+                  ):
+        """
+        Plots the currently loaded dataset.
+
+        Arguments:
+        font_size (int) -- Font size of plot labels. Default: 16
+        datacolor (str) -- Color of plotted data points. Must be a valid color for matplotlib. Default: '#929591'
+        x_label (str) -- Label for the x-axis. Default: 'x-values'
+        y_label (str) -- Label for the y-axis. Default: 'y-values'
+
+        Returns:
+        matplotlib plot of the currently loaded data set
+        """
+        if self.dataset is None:
+            raise ValueError("Dataset is empty, cannot generate graph.")
+        if not isinstance(font_size, int):
+            raise TypeError(f"font_size should be of type int instead of {type(font_size)}")
+        if not isinstance(datacolor, str):
+            raise TypeError(f"datacolor should be of type str instead of {type(datacolor)}")
+        if not isinstance(x_label, str):
+            raise TypeError(f"x_label should be of type str instead of {type(x_label)}")
+        if not isinstance(y_label, str):
+            raise TypeError(f"y_label should be of type str instead of {type(y_label)}")
+        
+        # Get timepoints if we have them, otherwise pass a generic arange numpy array based on number of observations
+        if self.dataset["times"] is not None:
+            t_n = self.dataset["times"]
+        else:
+            t_n = np.arange(len(self.dataset["data"]))
+        
+        # General figure setup
+        fig = plt.figure()
+        fnt_mgr = mpl.font_manager.FontProperties(size=font_size)
+        gs1 = GridSpec(1, 1, bottom=0.8)  # For legend
+        ax0 = fig.add_subplot(gs1[0])
+        ax0.axis('off')
+        gs2 = GridSpec(1, 1, top=0.85, wspace=0.07, hspace=0.05)  # For actual plot
+        ax1 = fig.add_subplot(gs2[0])
+
+        # Axis labels
+        fig.supxlabel(x_label, fontsize=font_size)
+        fig.supylabel(y_label, x=0.05, fontsize=font_size)
+
+        # Data point legend icon setup
+        class HandlerCircle(HandlerPatch):
+            def create_artists(self, legend, orig_handle,
+                            xdescent, ydescent, width, height, fontsize, trans):
+                center = 0.5 * width - 0.5 * xdescent, 0.5 * height - 0.5 * ydescent
+                p = mpatches.Circle(xy=center, radius=1.5)
+                self.update_prop(p, orig_handle, legend)
+                p.set_transform(trans)
+                return [p]
+
+        c = mpatches.Circle((0.5, 0.5), 0.25, facecolor="None",
+                            edgecolor=datacolor, linewidth=1)
+        
+        # Setup x-axis vectors for plotting
+        T = np.linspace(t_n[0], t_n[-1], len(self.dataset["data"]))
+
+        # Plot synthetic data
+        ax1.scatter(T, self.dataset["data"], alpha=0.7, color=datacolor, facecolors='none', marker='.')
+
+        # Add subplot titles
+        # ax1.set_title('SNR = 2.0', font=fpath, fontsize=fntsize)
+
+        # Generate legend
+        ax0.legend([c],
+                ['Data'], handler_map={mpatches.Circle: HandlerCircle()},
+                bbox_to_anchor=(0., 1.15, 1., .102), loc='lower center',
+                        ncol=1, mode="none", borderaxespad=0., edgecolor=(1.0, 1.0, 1.0, 0.0), prop=fnt_mgr, borderpad=0.8)
+        
+        # Configure axes
+        ax1.set_xticks([t_n[0], t_n[int(len(self.dataset["data"])/2)], t_n[-1]])
+        ax1.set_xticklabels([str(int(t_n[0])), str(int((t_n[int(len(self.dataset["data"])/2)]))), str(int(t_n[-1]))], fontsize=font_size)
+
+        ax1.set_yticks([int(np.amin(self.dataset["data"])), int((np.amax(self.dataset["data"])+np.amin(self.dataset["data"]))/2), int(np.amax(self.dataset["data"]))])
+        ax1.set_yticklabels([str(int(np.amin(self.dataset["data"]))), str(int((np.amax(self.dataset["data"])+np.amin(self.dataset["data"]))/2)), str(int(np.amax(self.dataset["data"])))], fontsize=font_size)
+
+        # Show plot
+        plt.show() 
 
 
     def visualize_results(self,
@@ -452,21 +602,38 @@ class BNPStep:
                           datacolor : str = '#929591',
                           learncolor : str = '#f97306',
                           gtcolor : str = '#00ffff',
+                          alt_color1 : str = '#5d3a9b',
+                          alt_color2 : str = '#c20078',
+                          alt_color3 : str = '#d31a0c',
+                          alt_color4 : str = '#fac205',
                           x_label : str =  'x-values',
                           y_label : str =  'y-values',
+                          show_prior : bool = True,
+                          show_ci : bool = True,
                           plot_alt_results : bool = False,
-                          alt_results : str = ''
+                          alt_results : Union[str, List[str]] = '',
+                          fig_savename : str = 'figure'
                           ):
-        # TODO: IN PROGRESS
-        # TODO: Better input validation for dataset dict
         """
         Draws plots of BNP-Step results with the dataset (and ground truths if present).
-        """
-        # Plot data set
-        # Plot ground truth, if available
-        # Plot inference results from BNP Step
-        # Do this for trajectory and/or histograms, depending on options selected
 
+        Arguments:
+        plot_type (str or list of str) -- Type of plot to be generated. If more than one is desired, pass the options
+                                          as a list of strings. Valid options are:
+                                                'step': Learned trajectory plotted over the dataset. For BNP-Step the
+                                                        MAP estimate sample is used. If alternative methods' results
+                                                        exist (see below), the criterion for the 'best' result varies
+                                                        by method.
+                                                'hist_step_height': Histograms of the step heights (the difference between
+                                                                    two adjacent emission levels). For BNP-Step, all samples
+                                                                    with the MAP number of steps are used.
+                                          Planned options include 'hist_dwell_time', 'hist_emission', 'hist_emission_separated',
+                                          'survivorship', 'hist_f', and 'hist_eta'
+
+        Results:
+
+        """
+        # TODO: Better input validation for dataset dict
         # Validate that we actually have non-empty dataset and results loaded
         if self.B_M is None or self.H_M is None or self.T_M is None or self.F_S is None or self.ETA is None:
             raise ValueError("One or more sample attributes is None, cannot generate graphs.")
@@ -493,56 +660,75 @@ class BNPStep:
             raise TypeError(f"learncolor should be of type str instead of {type(learncolor)}")
         if not isinstance(gtcolor, str):
             raise TypeError(f"gtcolor should be of type str instead of {type(gtcolor)}")
+        if not isinstance(alt_color1, str):
+            raise TypeError(f"alt_color1 should be of type str instead of {type(alt_color1)}")
+        if not isinstance(alt_color2, str):
+            raise TypeError(f"alt_color2 should be of type str instead of {type(alt_color2)}")
+        if not isinstance(alt_color3, str):
+            raise TypeError(f"alt_color3 should be of type str instead of {type(alt_color3)}")
         if not isinstance(x_label, str):
             raise TypeError(f"x_label should be of type str instead of {type(x_label)}")
         if not isinstance(y_label, str):
             raise TypeError(f"y_label should be of type str instead of {type(y_label)}")
+        if not isinstance(show_prior, bool):
+            raise TypeError(f"show_prior should be of type bool instead of {type(show_prior)}")
+        if not isinstance(show_ci, bool):
+            raise TypeError(f"show_ci should be of type bool instead of {type(show_ci)}")
         if not isinstance(plot_alt_results, bool):
             raise TypeError(f"plot_alt_results should be of type bool instead of {type(plot_alt_results)}")
-        if not isinstance(alt_results, str):
-            raise TypeError(f"alt_results should be of type str instead of {type(alt_results)}")
+        if not isinstance(alt_results, str) and not isinstance(alt_results, list):
+            raise TypeError(f"alt_results should be of type str or list of str instead of {type(alt_results)}")
+        if isinstance(alt_results, list):
+            for x in alt_results:
+                if not isinstance(x, str):
+                    raise TypeError(f"At least one element of alt_results is {type(x)} instead of str")
+        if isinstance(alt_results, str):
+            # Listify if a single str object
+            alt_results = [alt_results]
+        if not isinstance(fig_savename, str):
+            raise TypeError(f"fig_savename should be of type str instead of {type(fig_savename)}")
         
-        # Warn the user if invalid alt_results type was chosen
-        if plot_alt_results and alt_results != 'kv' and alt_results != 'ihmm':
-            warnings.warn(f"Valid values for alt_results are 'kv' and 'ihmm', got {alt_results}. No alternative method results will be shown.", UserWarning)
-            plot_alt_results = False
-        
+        # Warn the user if invalid alt_results type was chosen.
+        # If the user chose an alt_results type and there are no alt_results stored in the object attribute, throw exception.
+        if plot_alt_results:
+            for x in alt_results:
+                if x != 'kv' and x != 'ihmm':
+                    warnings.warn(f"Valid values for alt_results elements are 'kv' and 'ihmm', got {x}. No alternative method results will be shown.", UserWarning)
+                    plot_alt_results = False
+                elif x == 'kv' and self.alt_method_results_kv is None:
+                    raise ValueError("KV results attribute is empty, unable to plot results. Call run_BIC() to generate results from the dataset before plotting.")
+                elif x == 'ihmm' and self.alt_method_results_ihmm is None:
+                    raise ValueError("iHMM results attribute is empty, unable to plot results. Ensure you have all iHMM results files in the appropriate directory before plotting.")
+                
         # Ensure we have at least one valid plot type in plot_type list; otherwise warn the user and default to step plot
         has_valid_plot_type = False
         for plot in plot_type:
             if plot == 'step':
                 has_valid_plot_type = True
+            elif plot == 'hist_step_height':
+                has_valid_plot_type = True
+            elif plot == 'hist_dwell_time':
+                has_valid_plot_type = True
+            elif plot == 'hist_emission':
+                has_valid_plot_type = True
+            elif plot == 'hist_emission_separated':
+                has_valid_plot_type = True
+            elif plot == 'survivorship':
+                has_valid_plot_type = True
+            elif plot == 'hist_f':
+                has_valid_plot_type = True
+            elif plot == 'hist_eta':
+                has_valid_plot_type = True
         
         if not has_valid_plot_type:
             warnings.warn("No valid plot types were passed in plot_type parameter; reverting to default ('step')", UserWarning)
             plot_type = ['step']
-        
+
         # Get timepoints if we have them, otherwise pass a generic arange numpy array based on number of observations
         if self.dataset["times"] is not None:
             t_n = self.dataset["times"]
         else:
             t_n = np.arange(len(self.dataset["data"]))
-        
-        # General figure setup
-        fig = plt.figure()
-        fnt_mgr = mpl.font_manager.FontProperties(size=font_size)
-
-        if plot_alt_results:
-            gs1 = GridSpec(1, 1, bottom=0.8)  # For legend
-            ax0 = fig.add_subplot(gs1[0])
-            ax0.axis('off')
-            gs2 = GridSpec(1, 2, top=0.85, wspace=0.07, hspace=0.05)  # For actual plot
-            ax1 = fig.add_subplot(gs2[0])
-            ax2 = fig.add_subplot(gs2[1])
-        else:
-            gs1 = GridSpec(1, 1, bottom=0.8)  # For legend
-            ax0 = fig.add_subplot(gs1[0])
-            ax0.axis('off')
-            gs2 = GridSpec(1, 1, top=0.85, wspace=0.07, hspace=0.05)  # For actual plot
-            ax1 = fig.add_subplot(gs2[0])
-
-        fig.supxlabel(x_label, fontsize=font_size)
-        fig.supylabel(y_label, x=0.05, fontsize=font_size)
 
         # Data point legend icon setup
         class HandlerCircle(HandlerPatch):
@@ -557,14 +743,50 @@ class BNPStep:
         c = mpatches.Circle((0.5, 0.5), 0.25, facecolor="None",
                             edgecolor=datacolor, linewidth=1)
 
+        # Font manager
+        fnt_mgr = mpl.font_manager.FontProperties(size=font_size)
+
+        # Remove burn-in
+        # TODO: allow an option for the user to display the log posterior and manually select burn-in point.
+        # By default, remove the first 25% of samples as burn-in.
+        burn_in_samples = int(0.25 * len(self.post))
+        b_clean, h_clean, t_clean, f_clean, eta_clean, post_clean = bnpa.remove_burn_in(self.B_M, self.H_M, self.T_M, self.F_S, self.ETA, self.post, burn_in_samples)
+
         for plot in plot_type:
             if (plot == 'step'):
+                # General figure setup
+                fig = plt.figure()
+
+                if plot_alt_results and len(alt_results) == 1:
+                    gs1 = GridSpec(1, 1, bottom=0.8)  # For legend
+                    ax0 = fig.add_subplot(gs1[0])
+                    ax0.axis('off')
+                    gs2 = GridSpec(1, 2, top=0.85, wspace=0.07, hspace=0.05)  # For actual plot
+                    ax1 = fig.add_subplot(gs2[0])
+                    ax2 = fig.add_subplot(gs2[1])
+                elif plot_alt_results and len(alt_results) == 2:
+                    gs1 = GridSpec(1, 1, bottom=0.8)  # For legend
+                    ax0 = fig.add_subplot(gs1[0])
+                    ax0.axis('off')
+                    gs2 = GridSpec(1, 3, top=0.85, wspace=0.07, hspace=0.05)  # For actual plot
+                    ax1 = fig.add_subplot(gs2[0])
+                    ax2 = fig.add_subplot(gs2[1])
+                    ax3 = fig.add_subplot(gs2[2])
+                else:
+                    gs1 = GridSpec(1, 1, bottom=0.8)  # For legend
+                    ax0 = fig.add_subplot(gs1[0])
+                    ax0.axis('off')
+                    gs2 = GridSpec(1, 1, top=0.85, wspace=0.07, hspace=0.05)  # For actual plot
+                    ax1 = fig.add_subplot(gs2[0])
+
+                fig.supxlabel(x_label, fontsize=font_size)
+                fig.supylabel(y_label, x=0.05, fontsize=font_size)
+
                 # Setup x-axis vectors for plotting
                 T = np.linspace(t_n[0], t_n[-1], len(self.dataset["data"]))
                 
                 # Find the MAP estimate for our step plot
-                # TODO: right now this assumes we already removed burn-in, change this later
-                b_map, h_map, t_map, f_map, eta_map = bnpa.find_map(self.B_M, self.H_M, self.T_M, self.F_S, self.ETA, self.post)
+                b_map, h_map, t_map, f_map, eta_map = bnpa.find_map(b_clean, h_clean, t_clean, f_clean, eta_clean, post_clean)
 
                 # Generate step plot data from our results
                 sorted_times, sorted_data = bnpa.generate_step_plot_data(b_map, h_map, t_map, f_map, self.B_max, t_n)
@@ -576,49 +798,548 @@ class BNPStep:
                 if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
                     if self.dataset["parameters"]["type"] == 'kv':
                         ground_times, ground_data = bnpa.generate_gt_step_plot_data(self.dataset["ground_truths"]["b_m"], self.dataset["ground_truths"]["h_m"], self.dataset["ground_truths"]["t_m"], self.dataset["parameters"]["f_back"], t_n, self.B_max)
-                        ax1.stairs(ground_data, ground_times, baseline=None, color=gtcolor, linewidth=3.0)
+                        ax1.stairs(ground_data, ground_times, baseline=None, color=gtcolor, linewidth=3.0, zorder=5.0)
+                    if self.dataset["parameters"]["type"] == 'hmm':
+                        ground_data = self.dataset["ground_truths"]["u"]
+                        gt_times = np.asarray([0])
+                        gt_times = np.append(gt_times, t_n)
+                        ax1.stairs(ground_data, gt_times, baseline=None, color=gtcolor, linewidth=3.0, zorder=5.0)
 
                 # Plot discovered steps
-                ax1.stairs(sorted_data, sorted_times, baseline=None, color=learncolor, linewidth=3.0)
+                ax1.stairs(sorted_data, sorted_times, baseline=None, color=learncolor, linewidth=3.0, zorder=10)
 
                 # Add subplot titles
                 # ax1.set_title('SNR = 2.0', font=fpath, fontsize=fntsize)
-
-                # Generate legend
-                if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
-                    ax0.legend([Line2D([0], [0], color=gtcolor,lw=3.0),
-                                    Line2D([0], [0], color=learncolor,lw=3.0),c],
-                                ['Ground truth', 'Learned trajectory', 'Data'], handler_map={mpatches.Circle: HandlerCircle()},
-                                bbox_to_anchor=(0., 1.15, 1., .102), loc='lower center',
-                                        ncol=3, mode="none", borderaxespad=0., edgecolor=(1.0, 1.0, 1.0, 0.0), prop=fnt_mgr, borderpad=0.8)
-                else:
-                    ax0.legend([Line2D([0], [0], color=learncolor,lw=3.0),c],
-                            ['Learned trajectory', 'Data'], handler_map={mpatches.Circle: HandlerCircle()},
-                            bbox_to_anchor=(0., 1.15, 1., .102), loc='lower center',
-                                    ncol=2, mode="none", borderaxespad=0., edgecolor=(1.0, 1.0, 1.0, 0.0), prop=fnt_mgr, borderpad=0.8)
                 
                 # Configure axes
                 ax1.set_xticks([t_n[0], t_n[int(len(self.dataset["data"])/2)], t_n[-1]])
-                ax1.set_xticklabels([str((t_n[0])), str(int((t_n[int(len(self.dataset["data"])/2)]))), str((t_n[-1]))], fontsize=font_size)
+                ax1.set_xticklabels([str(int(t_n[0])), str(int((t_n[int(len(self.dataset["data"])/2)]))), str(int(t_n[-1]))], fontsize=font_size)
 
                 ax1.set_yticks([int(np.amin(sorted_data)), int((np.amax(sorted_data)+np.amin(sorted_data))/2), int(np.amax(sorted_data))])
                 ax1.set_yticklabels([str(int(np.amin(sorted_data))), str(int((np.amax(sorted_data)+np.amin(sorted_data))/2)), str(int(np.amax(sorted_data)))], fontsize=font_size)
 
                 # If we also have alternative results, plot those and configure the axes.
                 if plot_alt_results:
-                    # TODO: add actual plotting of alternative method's results
-                    ax2.scatter(T, self.dataset["data"], alpha=0.7, color=datacolor, facecolors='none', marker='.')
-                    
-                    # Put alternative method plotting here
-                    warnings.warn("Plotting of alternative method results is NYI", UserWarning)
+                    if len(alt_results) == 1:
+                        ax2.scatter(T, self.dataset["data"], alpha=0.7, color=datacolor, facecolors='none', marker='.')
+                        
+                        # Alternative method plotting
+                        if alt_results[0] == 'kv':
+                            plot_times, plot_heights = bnpa.generate_kv_step_plot_data(self.alt_method_results_kv["jump_times"], 
+                                                                                    self.alt_method_results_kv["means"], 
+                                                                                    self.alt_method_results_kv["background"], 
+                                                                                    t_n)
+                            ax2.stairs(plot_heights, plot_times, baseline=None, color=alt_color1, linewidth=3.0, zorder=10)
+                            # Generate legend
+                            if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
+                                ax0.legend([Line2D([0], [0], color=gtcolor,lw=3.0),
+                                                Line2D([0], [0], color=learncolor,lw=3.0), Line2D([0], [0], color=alt_color1,lw=3.0),c],
+                                            ['Ground truth', 'BNP-Step', 'BIC', 'Data'], handler_map={mpatches.Circle: HandlerCircle()},
+                                            bbox_to_anchor=(0., 1.15, 1., .102), loc='lower center',
+                                                    ncol=4, mode="none", borderaxespad=0., edgecolor=(1.0, 1.0, 1.0, 0.0), prop=fnt_mgr, borderpad=0.8)
+                            else:
+                                ax0.legend([Line2D([0], [0], color=learncolor,lw=3.0), Line2D([0], [0], color=alt_color1,lw=3.0), c],
+                                        ['BNP-Step', 'BIC', 'Data'], handler_map={mpatches.Circle: HandlerCircle()},
+                                        bbox_to_anchor=(0., 1.15, 1., .102), loc='lower center',
+                                                ncol=3, mode="none", borderaxespad=0., edgecolor=(1.0, 1.0, 1.0, 0.0), prop=fnt_mgr, borderpad=0.8)
+                        elif alt_results[0] == 'ihmm':
+                            sampled_heights = self.alt_method_results_ihmm["mode_mean_traj"]
+                            sampled_times = t_n.copy()
+                            sampled_times = np.append(sampled_times, t_n[-1])
+                            ax2.stairs(sampled_heights, sampled_times, baseline=None, color=alt_color4, linewidth=3.0, zorder=10)
+                            # Generate legend
+                            if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
+                                ax0.legend([Line2D([0], [0], color=gtcolor,lw=3.0),
+                                                Line2D([0], [0], color=learncolor,lw=3.0), Line2D([0], [0], color=alt_color4,lw=3.0),c],
+                                            ['Ground truth', 'BNP-Step', 'iHMM', 'Data'], handler_map={mpatches.Circle: HandlerCircle()},
+                                            bbox_to_anchor=(0., 1.15, 1., .102), loc='lower center',
+                                                    ncol=4, mode="none", borderaxespad=0., edgecolor=(1.0, 1.0, 1.0, 0.0), prop=fnt_mgr, borderpad=0.8)
+                            else:
+                                ax0.legend([Line2D([0], [0], color=learncolor,lw=3.0), Line2D([0], [0], color=alt_color4,lw=3.0), c],
+                                        ['BNP-Step', 'iHMM', 'Data'], handler_map={mpatches.Circle: HandlerCircle()},
+                                        bbox_to_anchor=(0., 1.15, 1., .102), loc='lower center',
+                                                ncol=3, mode="none", borderaxespad=0., edgecolor=(1.0, 1.0, 1.0, 0.0), prop=fnt_mgr, borderpad=0.8)
+                        # Plot ground truths too if we have them
+                        if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
+                            if self.dataset["parameters"]["type"] == 'kv':
+                                ground_times, ground_data = bnpa.generate_gt_step_plot_data(self.dataset["ground_truths"]["b_m"], self.dataset["ground_truths"]["h_m"], self.dataset["ground_truths"]["t_m"], self.dataset["parameters"]["f_back"], t_n, self.B_max)
+                                ax2.stairs(ground_data, ground_times, baseline=None, color=gtcolor, linewidth=3.0, zorder=5)
+                            if self.dataset["parameters"]["type"] == 'hmm':
+                                ground_data = self.dataset["ground_truths"]["u"]
+                                gt_times = np.asarray([0])
+                                gt_times = np.append(gt_times, t_n)
+                                ax2.stairs(ground_data, gt_times, baseline=None, color=gtcolor, linewidth=3.0, zorder=5.0)
+                        # Configure axes
+                        ax2.set_xticks([t_n[0], t_n[int(len(self.dataset["data"])/2)], t_n[-1]])
+                        ax2.set_xticklabels([str(int(t_n[0])), str(int((t_n[int(len(self.dataset["data"])/2)]))), str(int(t_n[-1]))], fontsize=font_size)
+                        ax2.set_yticks([int(np.amin(sorted_data)), int((np.amax(sorted_data)+np.amin(sorted_data))/2), int(np.amax(sorted_data))])
+                        ax2.set_yticklabels(['', '', ''], fontsize=font_size)
+                    elif len(alt_results) == 2:
+                        ax2.scatter(T, self.dataset["data"], alpha=0.7, color=datacolor, facecolors='none', marker='.')
+                        ax3.scatter(T, self.dataset["data"], alpha=0.7, color=datacolor, facecolors='none', marker='.')
+                        
+                        # Plot KV first, then iHMM
+                        plot_times, plot_heights = bnpa.generate_kv_step_plot_data(self.alt_method_results_kv["jump_times"], 
+                                                                                    self.alt_method_results_kv["means"], 
+                                                                                    self.alt_method_results_kv["background"], 
+                                                                                    t_n)
+                        ax2.stairs(plot_heights, plot_times, baseline=None, color=alt_color1, linewidth=3.0, zorder=10)
 
-                    # Configure axes
-                    ax2.set_xticks([t_n[0], t_n[int(len(self.dataset["data"])/2)], t_n[-1]])
-                    ax2.set_xticklabels([str(int(t_n[0])), str(int((t_n[int(len(self.dataset["data"])/2)]))), str(int(t_n[-1]))], fontsize=font_size)
-                    ax2.set_yticks([int(np.amin(sorted_data)), int((np.amax(sorted_data)+np.amin(sorted_data))/2), int(np.amax(sorted_data))])
-                    ax2.set_yticklabels(['', '', ''], fontsize=font_size)
+                        sampled_heights = self.alt_method_results_ihmm["mode_mean_traj"]
+                        sampled_times = t_n.copy()
+                        sampled_times = np.append(sampled_times, t_n[-1])
+                        ax3.stairs(sampled_heights, sampled_times, baseline=None, color=alt_color4, linewidth=3.0, zorder=10)
+
+                        # Generate legend
+                        if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
+                                ax0.legend([Line2D([0], [0], color=gtcolor,lw=3.0),
+                                                Line2D([0], [0], color=learncolor,lw=3.0), Line2D([0], [0], color=alt_color1,lw=3.0), Line2D([0], [0], color=alt_color4,lw=3.0),c],
+                                            ['Ground truth', 'BNP-Step', 'BIC', 'iHMM', 'Data'], handler_map={mpatches.Circle: HandlerCircle()},
+                                            bbox_to_anchor=(0., 1.15, 1., .102), loc='lower center',
+                                                    ncol=5, mode="none", borderaxespad=0., edgecolor=(1.0, 1.0, 1.0, 0.0), prop=fnt_mgr, borderpad=0.8)
+                        else:
+                            ax0.legend([Line2D([0], [0], color=learncolor,lw=3.0), Line2D([0], [0], color=alt_color1,lw=3.0), Line2D([0], [0], color=alt_color4,lw=3.0), c],
+                                    ['BNP-Step', 'BIC', 'iHMM', 'Data'], handler_map={mpatches.Circle: HandlerCircle()},
+                                    bbox_to_anchor=(0., 1.15, 1., .102), loc='lower center',
+                                            ncol=4, mode="none", borderaxespad=0., edgecolor=(1.0, 1.0, 1.0, 0.0), prop=fnt_mgr, borderpad=0.8)
+                                
+                        # Plot ground truths too if we have them
+                        if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
+                            if self.dataset["parameters"]["type"] == 'kv':
+                                ground_times, ground_data = bnpa.generate_gt_step_plot_data(self.dataset["ground_truths"]["b_m"], self.dataset["ground_truths"]["h_m"], self.dataset["ground_truths"]["t_m"], self.dataset["parameters"]["f_back"], t_n, self.B_max)
+                                ax2.stairs(ground_data, ground_times, baseline=None, color=gtcolor, linewidth=3.0, zorder=5)
+                                ax3.stairs(ground_data, ground_times, baseline=None, color=gtcolor, linewidth=3.0, zorder=5)
+                            if self.dataset["parameters"]["type"] == 'hmm':
+                                ground_data = self.dataset["ground_truths"]["u"]
+                                gt_times = np.asarray([0])
+                                gt_times = np.append(gt_times, t_n)
+                                ax2.stairs(ground_data, gt_times, baseline=None, color=gtcolor, linewidth=3.0, zorder=5.0)
+                                ax3.stairs(ground_data, gt_times, baseline=None, color=gtcolor, linewidth=3.0, zorder=5.0)
+
+                        # Configure axes
+                        ax2.set_xticks([t_n[0], t_n[int(len(self.dataset["data"])/2)], t_n[-1]])
+                        ax2.set_xticklabels([str(int(t_n[0])), str(int((t_n[int(len(self.dataset["data"])/2)]))), str(int(t_n[-1]))], fontsize=font_size)
+                        ax2.set_yticks([int(np.amin(sorted_data)), int((np.amax(sorted_data)+np.amin(sorted_data))/2), int(np.amax(sorted_data))])
+                        ax2.set_yticklabels(['', '', ''], fontsize=font_size)
+
+                        ax3.set_xticks([t_n[0], t_n[int(len(self.dataset["data"])/2)], t_n[-1]])
+                        ax3.set_xticklabels([str(int(t_n[0])), str(int((t_n[int(len(self.dataset["data"])/2)]))), str(int(t_n[-1]))], fontsize=font_size)
+                        ax3.set_yticks([int(np.amin(sorted_data)), int((np.amax(sorted_data)+np.amin(sorted_data))/2), int(np.amax(sorted_data))])
+                        ax3.set_yticklabels(['', '', ''], fontsize=font_size)
+                else:
+                    # Configure legend
+                    if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
+                        ax0.legend([Line2D([0], [0], color=gtcolor,lw=3.0),
+                                        Line2D([0], [0], color=learncolor,lw=3.0),c],
+                                    ['Ground truth', 'BNP-Step', 'Data'], handler_map={mpatches.Circle: HandlerCircle()},
+                                    bbox_to_anchor=(0., 1.15, 1., .102), loc='lower center',
+                                            ncol=3, mode="none", borderaxespad=0., edgecolor=(1.0, 1.0, 1.0, 0.0), prop=fnt_mgr, borderpad=0.8)
+                    else:
+                        ax0.legend([Line2D([0], [0], color=learncolor,lw=3.0), c],
+                                ['BNP-Step', 'Data'], handler_map={mpatches.Circle: HandlerCircle()},
+                                bbox_to_anchor=(0., 1.15, 1., .102), loc='lower center',
+                                        ncol=2, mode="none", borderaxespad=0., edgecolor=(1.0, 1.0, 1.0, 0.0), prop=fnt_mgr, borderpad=0.8)
 
                 # Show plot, then save figure
-                warnings.warn("Automatic saving of figures NYI", UserWarning)
                 plt.show()
-                #fig.savefig('stepPlot.pdf', format='pdf')
+                # TODO: add user option to generate figure type other than pdf
+                output_filename = fig_savename + '_' + plot + '.pdf'
+                fig.savefig(output_filename, format='pdf')
+
+            elif (plot == 'hist_step_height'):
+                # General figure setup
+                fig = plt.figure()
+
+                if plot_alt_results and len(alt_results) == 1:
+                    gs1 = GridSpec(1, 1, bottom=0.8)  # For legend
+                    ax0 = fig.add_subplot(gs1[0])
+                    ax0.axis('off')
+                    gs2 = GridSpec(1, 2, top=0.85, wspace=0.07, hspace=0.05)  # For actual plot
+                    ax1 = fig.add_subplot(gs2[0])
+                    ax2 = fig.add_subplot(gs2[1])
+                elif plot_alt_results and len(alt_results) == 2:
+                    gs1 = GridSpec(1, 1, bottom=0.8)  # For legend
+                    ax0 = fig.add_subplot(gs1[0])
+                    ax0.axis('off')
+                    gs2 = GridSpec(1, 3, top=0.85, wspace=0.07, hspace=0.05)  # For actual plot
+                    ax1 = fig.add_subplot(gs2[0])
+                    ax2 = fig.add_subplot(gs2[1])
+                    ax3 = fig.add_subplot(gs2[2])
+                else:
+                    gs1 = GridSpec(1, 1, bottom=0.8)  # For legend
+                    ax0 = fig.add_subplot(gs1[0])
+                    ax0.axis('off')
+                    gs2 = GridSpec(1, 1, top=0.85, wspace=0.07, hspace=0.05)  # For actual plot
+                    ax1 = fig.add_subplot(gs2[0])
+
+                fig.supxlabel(x_label, fontsize=font_size)
+                fig.supylabel(y_label, x=0.05, fontsize=font_size)
+
+                # Legend setup
+                orange_patch = mpatches.Patch(color=learncolor, alpha=0.5, label='BNP-Step')
+                purple_patch = mpatches.Patch(color=alt_color1, alpha=0.5, label='BIC')
+                yellow_patch = mpatches.Patch(color=alt_color4, alpha=0.5, label='iHMM')
+                cyan_patch = mpatches.Patch(color=gtcolor, label='Ground truths')
+                magenta_patch = mpatches.Patch(color=alt_color2, label='Prior')
+                red_patch = mpatches.Patch(color=alt_color3, alpha=0.2, label='95% CR')
+                
+                # Prepare fixed bins - NYI, should be an option in input arguments
+                #fixed_bins = np.arange(0,41,2)
+
+                # Generate histogram sets
+                good_b_m, good_h_m, good_t_m, good_f_s, good_eta = bnpa.find_top_samples_by_jumps(b_clean, h_clean, t_clean, f_clean, eta_clean, post_clean)
+                # TODO: let the user choose how many samples go into the histograms.
+                hist_heights, _ = bnpa.generate_histogram_data(good_b_m, good_h_m, good_t_m, len(good_eta), self.B_max)
+                
+                # Plotting - todo: set bins=fixed_bins
+                n, bins, patches = ax1.hist(hist_heights, alpha=0.5, edgecolor=learncolor, color=learncolor, density=True, histtype='stepfilled')
+
+                # Legend parameters
+                handle_array = [orange_patch]
+                num_cols = 1
+
+                # Configure axes and plot alternative methods' results if we have them
+                if plot_alt_results:
+                    if len(alt_results) == 1:
+                        if alt_results[0] == 'kv':
+                            hist_heights_kv, _ = bnpa.generate_histogram_data_kv(self.alt_method_results_kv["means"], self.alt_method_results_kv["jump_times"])
+                            # TODO: add option for bins=fixed_bins
+                            n_kv, bins_kv, patches_kv = ax2.hist(hist_heights_kv, alpha=0.5, edgecolor=alt_color1, color=alt_color1, density=True, histtype='stepfilled')
+                            bins_tot_h = np.concatenate((bins, bins_kv))
+                            n_tot_h = np.concatenate((n, n_kv))
+                            # Configure axes
+                            ax1.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                            ax2.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                            ax1.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                            ax1.set_yticklabels(['0', f'{np.amax(n_tot_h)/2:.1f}', f'{np.amax(n_tot_h):.1f}'], fontsize=font_size)
+                            ax2.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                            ax2.set_yticklabels(['', '', ''], fontsize=font_size)
+                            ax1.set_xlim(int(np.amin(bins_tot_h)-2),int(np.amax(bins_tot_h)+2))
+                            ax2.set_xlim(int(np.amin(bins_tot_h)-2),int(np.amax(bins_tot_h)+2))
+                            ax1.set_xticks([int(np.amin(bins_tot_h)), int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2), int(np.amax(bins_tot_h))])
+                            ax1.set_xticklabels([str(int(np.amin(bins_tot_h))), str(int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2)), str(int(np.amax(bins_tot_h)))], fontsize=font_size)
+                            ax2.set_xticks([int(np.amin(bins_tot_h)), int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2), int(np.amax(bins_tot_h))])
+                            ax2.set_xticklabels([str(int(np.amin(bins_tot_h))), str(int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2)), str(int(np.amax(bins_tot_h)))], fontsize=font_size)
+                            if show_prior:
+                                ax_1 = ax1.twinx()
+                                ax_1.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                                ax_1.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                                ax_1.set_yticklabels(['','',''], fontsize=font_size)
+                            # Plot ground truths if we have them
+                            if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
+                                if self.dataset["parameters"]["type"] == 'kv':
+                                    ground_h_trim = np.trim_zeros(self.dataset["ground_truths"]["h_m"])
+                                    ax1.vlines(ground_h_trim, 0 ,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1 ,color=gtcolor, zorder=10)
+                                    ax2.vlines(ground_h_trim, 0 ,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1 ,color=gtcolor, zorder=10)
+                                    handle_array.append(cyan_patch)
+                                    num_cols += 1
+                                elif self.dataset["parameters"]["type"] == 'hmm':
+                                    ground_h_ihmm = []
+                                    for itm in range(1, len(self.dataset["ground_truths"]["u"])):
+                                        if self.dataset["ground_truths"]["u"][itm] != self.dataset["ground_truths"]["u"][itm-1]:
+                                            ground_h_ihmm.append(self.dataset["ground_truths"]["u"][itm] - self.dataset["ground_truths"]["u"][itm-1])
+                                    ground_h_ihmm = np.unique(np.abs(np.asarray(ground_h_ihmm)))
+                                    ax1.vlines(ground_h_ihmm, 0 ,np.amax(n)+np.amax(n)*0.1 ,color=gtcolor, zorder=10)
+                                    ax2.vlines(ground_h_ihmm, 0 ,np.amax(n)+np.amax(n)*0.1 ,color=gtcolor, zorder=10)
+                                    handle_array.append(cyan_patch)
+                                    num_cols += 1
+                            handle_array.append(purple_patch)
+                            num_cols += 1
+                        elif alt_results[0] == 'ihmm':
+                            warnings.warn(f"iHMM results cannot be plotted with hist_height option, NYI.", UserWarning)
+                            #hist_heights_kv, _ = bnpa.generate_histogram_data_kv(self.alt_method_results_kv["means"], self.alt_method_results_kv["jump_times"])
+                            # TODO: add option for bins=fixed_bins
+                            #n_kv, bins_kv, patches_kv = ax2.hist(hist_heights_kv, alpha=0.5, edgecolor=alt_color1, color=alt_color1, density=True, histtype='stepfilled')
+                            #bins_tot_h = np.concatenate((bins, bins_kv))
+                            #n_tot_h = np.concatenate((n, n_kv))
+                            bins_tot_h = bins
+                            n_tot_h = n
+                            # Configure axes
+                            ax1.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                            ax2.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                            ax1.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                            ax1.set_yticklabels(['0', f'{np.amax(n_tot_h)/2:.1f}', f'{np.amax(n_tot_h):.1f}'], fontsize=font_size)
+                            ax2.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                            ax2.set_yticklabels(['', '', ''], fontsize=font_size)
+                            ax1.set_xlim(int(np.amin(bins_tot_h)-2),int(np.amax(bins_tot_h)+2))
+                            ax2.set_xlim(int(np.amin(bins_tot_h)-2),int(np.amax(bins_tot_h)+2))
+                            ax1.set_xticks([int(np.amin(bins_tot_h)), int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2), int(np.amax(bins_tot_h))])
+                            ax1.set_xticklabels([str(int(np.amin(bins_tot_h))), str(int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2)), str(int(np.amax(bins_tot_h)))], fontsize=font_size)
+                            ax2.set_xticks([int(np.amin(bins_tot_h)), int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2), int(np.amax(bins_tot_h))])
+                            ax2.set_xticklabels([str(int(np.amin(bins_tot_h))), str(int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2)), str(int(np.amax(bins_tot_h)))], fontsize=font_size)
+                            if show_prior:
+                                ax_1 = ax1.twinx()
+                                ax_1.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                                ax_1.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                                ax_1.set_yticklabels(['','',''], fontsize=font_size)
+                            if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
+                                if self.dataset["parameters"]["type"] == 'kv':
+                                    ground_h_trim = np.trim_zeros(self.dataset["ground_truths"]["h_m"])
+                                    ax1.vlines(ground_h_trim, 0 ,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1 ,color=gtcolor, zorder=10)
+                                    ax2.vlines(ground_h_trim, 0 ,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1 ,color=gtcolor, zorder=10)
+                                    handle_array.append(cyan_patch)
+                                    num_cols += 1
+                                elif self.dataset["parameters"]["type"] == 'hmm':
+                                    ground_h_ihmm = []
+                                    for itm in range(1, len(self.dataset["ground_truths"]["u"])):
+                                        if self.dataset["ground_truths"]["u"][itm] != self.dataset["ground_truths"]["u"][itm-1]:
+                                            ground_h_ihmm.append(self.dataset["ground_truths"]["u"][itm] - self.dataset["ground_truths"]["u"][itm-1])
+                                    ground_h_ihmm = np.unique(np.abs(np.asarray(ground_h_ihmm)))
+                                    ax1.vlines(ground_h_ihmm, 0 ,np.amax(n)+np.amax(n)*0.1 ,color=gtcolor, zorder=10)
+                                    ax2.vlines(ground_h_ihmm, 0 ,np.amax(n)+np.amax(n)*0.1 ,color=gtcolor, zorder=10)
+                                    handle_array.append(cyan_patch)
+                                    num_cols += 1
+                            handle_array.append(yellow_patch)
+                            num_cols += 1
+                    elif len(alt_results) == 2:
+                        warnings.warn(f"iHMM results cannot be plotted with hist_height option, NYI.", UserWarning)
+                        hist_heights_kv, _ = bnpa.generate_histogram_data_kv(self.alt_method_results_kv["means"], self.alt_method_results_kv["jump_times"])
+                        #hist_heights_kv, _ = bnpa.generate_histogram_data_kv(self.alt_method_results_kv["means"], self.alt_method_results_kv["jump_times"])
+                        # TODO: add option for bins=fixed_bins
+                        n_kv, bins_kv, patches_kv = ax2.hist(hist_heights_kv, alpha=0.5, edgecolor=alt_color1, color=alt_color1, density=True, histtype='stepfilled')
+                        #n_kv, bins_kv, patches_kv = ax3.hist(hist_heights_kv, alpha=0.5, edgecolor=alt_color1, color=alt_color1, density=True, histtype='stepfilled')
+                        bins_tot_h = np.concatenate((bins, bins_kv))
+                        n_tot_h = np.concatenate((n, n_kv))
+                        # Configure axes
+                        ax1.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                        ax2.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                        ax3.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                        ax1.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                        ax1.set_yticklabels(['0', f'{np.amax(n_tot_h)/2:.1f}', f'{np.amax(n_tot_h):.1f}'], fontsize=font_size)
+                        ax2.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                        ax2.set_yticklabels(['', '', ''], fontsize=font_size)
+                        ax3.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                        ax3.set_yticklabels(['', '', ''], fontsize=font_size)
+                        ax1.set_xlim(int(np.amin(bins_tot_h)-2),int(np.amax(bins_tot_h)+2))
+                        ax2.set_xlim(int(np.amin(bins_tot_h)-2),int(np.amax(bins_tot_h)+2))
+                        ax3.set_xlim(int(np.amin(bins_tot_h)-2),int(np.amax(bins_tot_h)+2))
+                        ax1.set_xticks([int(np.amin(bins_tot_h)), int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2), int(np.amax(bins_tot_h))])
+                        ax1.set_xticklabels([str(int(np.amin(bins_tot_h))), str(int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2)), str(int(np.amax(bins_tot_h)))], fontsize=font_size)
+                        ax2.set_xticks([int(np.amin(bins_tot_h)), int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2), int(np.amax(bins_tot_h))])
+                        ax2.set_xticklabels([str(int(np.amin(bins_tot_h))), str(int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2)), str(int(np.amax(bins_tot_h)))], fontsize=font_size)
+                        ax3.set_xticks([int(np.amin(bins_tot_h)), int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2), int(np.amax(bins_tot_h))])
+                        ax3.set_xticklabels([str(int(np.amin(bins_tot_h))), str(int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2)), str(int(np.amax(bins_tot_h)))], fontsize=font_size)
+                        if show_prior:
+                            ax_1 = ax1.twinx()
+                            ax_1.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                            ax_1.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                            ax_1.set_yticklabels(['','',''], fontsize=font_size)
+                        # Plot ground truths if we have them
+                        if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
+                            if self.dataset["parameters"]["type"] == 'kv':
+                                ground_h_trim = np.trim_zeros(self.dataset["ground_truths"]["h_m"])
+                                ax1.vlines(ground_h_trim, 0 ,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1 ,color=gtcolor, zorder=10)
+                                ax2.vlines(ground_h_trim, 0 ,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1 ,color=gtcolor, zorder=10)
+                                ax3.vlines(ground_h_trim, 0 ,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1 ,color=gtcolor, zorder=10)
+                                handle_array.append(cyan_patch)
+                                num_cols += 1
+                            elif self.dataset["parameters"]["type"] == 'hmm':
+                                ground_h_ihmm = []
+                                for itm in range(1, len(self.dataset["ground_truths"]["u"])):
+                                    if self.dataset["ground_truths"]["u"][itm] != self.dataset["ground_truths"]["u"][itm-1]:
+                                        ground_h_ihmm.append(self.dataset["ground_truths"]["u"][itm] - self.dataset["ground_truths"]["u"][itm-1])
+                                ground_h_ihmm = np.unique(np.abs(np.asarray(ground_h_ihmm)))
+                                ax1.vlines(ground_h_ihmm, 0 ,np.amax(n)+np.amax(n)*0.1 ,color=gtcolor, zorder=10)
+                                ax2.vlines(ground_h_ihmm, 0 ,np.amax(n)+np.amax(n)*0.1 ,color=gtcolor, zorder=10)
+                                ax3.vlines(ground_h_ihmm, 0 ,np.amax(n)+np.amax(n)*0.1 ,color=gtcolor, zorder=10)
+                                handle_array.append(cyan_patch)
+                                num_cols += 1
+                        handle_array.append(purple_patch)
+                        handle_array.append(yellow_patch)
+                        num_cols += 2
+                else:
+                    ax1.set_ylim(0,np.amax(n)+np.amax(n)*0.1)
+                    ax1.set_yticks([0, np.amax(n)/2, np.amax(n)])
+                    ax1.set_yticklabels(['0', f'{np.amax(n)/2:.1f}', f'{np.amax(n):.1f}'], fontsize=font_size)
+                    ax1.set_xlim(int(np.amin(bins)-2),int(np.amax(bins)+2))
+                    ax1.set_xticks([int(np.amin(bins)), int((np.amin(bins) + np.amax(bins)) / 2), int(np.amax(bins))])
+                    ax1.set_xticklabels([str(int(np.amin(bins))), str(int((np.amin(bins) + np.amax(bins)) / 2)), str(int(np.amax(bins)))], fontsize=font_size)
+                    if show_prior:
+                        ax_1 = ax1.twinx()
+                        ax_1.set_ylim(0,np.amax(n)+np.amax(n)*0.1)
+                        ax_1.set_yticks([0, np.amax(n)/2, np.amax(n)])
+                        ax_1.set_yticklabels(['','',''], fontsize=font_size)
+                    # Plot ground truths if we have them
+                    if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
+                        if self.dataset["parameters"]["type"] == 'kv':
+                            ground_h_trim = np.trim_zeros(self.dataset["ground_truths"]["h_m"])
+                            ax1.vlines(ground_h_trim, 0 ,np.amax(n)+np.amax(n)*0.1 ,color=gtcolor, zorder=10)
+                        elif self.dataset["parameters"]["type"] == 'hmm':
+                            ground_h_ihmm = []
+                            for itm in range(1, len(self.dataset["ground_truths"]["u"])):
+                                if self.dataset["ground_truths"]["u"][itm] != self.dataset["ground_truths"]["u"][itm-1]:
+                                    ground_h_ihmm.append(self.dataset["ground_truths"]["u"][itm] - self.dataset["ground_truths"]["u"][itm-1])
+                            ground_h_ihmm = np.unique(np.abs(np.asarray(ground_h_ihmm)))
+                            ax1.vlines(ground_h_ihmm, 0 ,np.amax(n)+np.amax(n)*0.1 ,color=gtcolor, zorder=10)
+                            handle_array.append(cyan_patch)
+                            num_cols += 1
+
+                # Plot prior if we chose this option
+                if show_prior:
+                    prior_x = np.linspace(self.h_ref-2*(1/np.sqrt(self.chi)), self.h_ref+2*(1/np.sqrt(self.chi)), 200)
+                    prior_h = np.sqrt(self.chi/(2*np.pi))*np.exp(-(self.chi/2)*(prior_x-self.h_ref)**2)
+                    ax_1.plot(prior_x, prior_h,label='Prior', color=alt_color2, zorder=5)
+                    handle_array.append(magenta_patch)
+                    num_cols += 1
+                
+                # Plot CI if we chose this option
+                # TODO: add options to show 50% CI or have user-defined CI
+                if show_ci:
+                    y_limits_ci = [0, 100]
+                    mean, under95, under50, median, upper50, upper95 = bnpa.get_credible_intervals(hist_heights)
+                    ax1.fill_betweenx(y=y_limits_ci, x1=upper95, x2=under95, color=alt_color3, alpha=0.2, zorder=-10)
+                    handle_array.append(red_patch)
+                    num_cols += 1
+
+                # Generate legend
+                ax0.legend(bbox_to_anchor=(0., 1.08, 1., .102), handles=handle_array,
+                                loc='lower center', ncol=num_cols, mode="none", borderaxespad=0., borderpad=0.8, edgecolor=(1.0, 1.0, 1.0, 0.0), prop=fnt_mgr)
+                            
+                # Show plot, then save figure
+                plt.show()
+                # TODO: add user option to generate figure type other than pdf
+                output_filename = fig_savename + '_' + plot + '.pdf'
+                fig.savefig(output_filename, format='pdf')
+
+            elif (plot == 'hist_dwell_time'):
+                warnings.warn(f"Dwell time histograms NYI", UserWarning)
+
+            elif (plot == 'hist_emission'):
+                warnings.warn(f"Emission level histograms NYI", UserWarning)
+                """# TODO: change this so you are always histogramming the enission level, and add support for BIC.
+                # General figure setup
+                fig = plt.figure()
+
+                if plot_alt_results and len(alt_results) == 1:
+                    gs1 = GridSpec(1, 1, bottom=0.8)  # For legend
+                    ax0 = fig.add_subplot(gs1[0])
+                    ax0.axis('off')
+                    gs2 = GridSpec(1, 2, top=0.85, wspace=0.07, hspace=0.05)  # For actual plot
+                    ax1 = fig.add_subplot(gs2[0])
+                    ax2 = fig.add_subplot(gs2[1])
+                elif plot_alt_results and len(alt_results) == 2:
+                    warnings.warn(f"BIC method results cannot be plotted with hist_height_posterior option; use hist_height instead.", UserWarning)
+                    gs1 = GridSpec(1, 1, bottom=0.8)  # For legend
+                    ax0 = fig.add_subplot(gs1[0])
+                    ax0.axis('off')
+                    gs2 = GridSpec(1, 2, top=0.85, wspace=0.07, hspace=0.05)  # For actual plot
+                    ax1 = fig.add_subplot(gs2[0])
+                    ax2 = fig.add_subplot(gs2[1])
+                else:
+                    gs1 = GridSpec(1, 1, bottom=0.8)  # For legend
+                    ax0 = fig.add_subplot(gs1[0])
+                    ax0.axis('off')
+                    gs2 = GridSpec(1, 1, top=0.85, wspace=0.07, hspace=0.05)  # For actual plot
+                    ax1 = fig.add_subplot(gs2[0])
+
+                fig.supxlabel(x_label, fontsize=font_size)
+                fig.supylabel(y_label, x=0.05, fontsize=font_size)
+
+                # Legend setup
+                orange_patch = mpatches.Patch(color=learncolor, alpha=0.7, label='BNP-Step')
+                purple_patch = mpatches.Patch(color=alt_color1, alpha=0.7, label='iHMM')
+                cyan_patch = mpatches.Patch(color=gtcolor, label='Ground truths')
+                magenta_patch = mpatches.Patch(color=alt_color2, label='Prior')
+
+                # Prepare fixed bins - NYI, should be an option users choose
+                #fixed_bins = np.arange(-10,20,0.05)
+
+                # Plot ground truths if we have them
+                if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
+                    if self.dataset["parameters"]["type"] == 'hmm':
+                        ax1.vlines(self.dataset["parameters"]["h_step"], 0, 100, color=gtcolor, zorder=10)
+                        ax1.vlines(self.dataset["parameters"]["h_step2"], 0, 100, color=gtcolor, zorder=10)
+                        if self.dataset["parameters"]["h_step3"] is not None:
+                            ax1.vlines(self.dataset["parameters"]["h_step3"], 0, 100, color=gtcolor, zorder=10)
+                        if self.dataset["parameters"]["h_step4"] is not None:
+                            ax1.vlines(self.dataset["parameters"]["h_step4"], 0, 100, color=gtcolor, zorder=10)
+                        if self.dataset["parameters"]["h_step5"] is not None:
+                            ax1.vlines(self.dataset["parameters"]["h_step5"], 0, 100, color=gtcolor, zorder=10)
+                    elif self.dataset["parameters"]["type"] == 'kv':
+                        warnings.warn(f"Ground truth plotting for BIC-style data sets NYI", UserWarning)
+                
+
+                # Strip out samples with the MAP number of steps, then generate the histogrammable data set
+                b_m_top, h_m_top, t_m_top, f_back_top, eta_top = bnpa.find_top_samples_by_jumps(b_clean, h_clean, t_clean, f_clean, eta_clean, post_clean)
+                sample_times, sample_data = bnpa.generate_histogram_data_ihmm(b_m_top, h_m_top, t_m_top, f_back_top, self.B_max)
+                
+                # Ravel the dataset for histogramming
+                hist_data = np.ravel(sample_data)
+
+                # Plot histogram
+                # TODO: add bins=fixed_bins option
+                n, bins, patches = ax1.hist(hist_data, alpha=0.5, edgecolor=learncolor, density=True, color=learncolor, histtype='stepfilled')
+                
+                # Plot prior if we chose this option
+                if show_prior:
+                    prior_x = np.linspace(self.h_ref-2*(1/np.sqrt(self.chi)), self.h_ref+2*(1/np.sqrt(self.chi)), 200)
+                    prior_h = np.sqrt(self.chi/(2*np.pi))*np.exp(-(self.chi/2)*(prior_x-self.h_ref)**2)
+                    ax1.plot(prior_x, prior_h, label='Prior', color=alt_color2, zorder=5, linewidth=3.0)
+
+                # Add legend
+                # TODO: fix this so it only shows legend entries the user actually selected
+                if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
+                    ax0.legend(bbox_to_anchor=(0., 1.08, 1., .102), handles=[orange_patch, purple_patch, cyan_patch, magenta_patch],
+                                loc='lower center', ncol=4, mode="none", borderaxespad=0., borderpad=0.8, edgecolor=(1.0, 1.0, 1.0, 0.0), prop=fnt_mgr)
+                else:
+                    ax0.legend(bbox_to_anchor=(0., 1.08, 1., .102), handles=[orange_patch, purple_patch, magenta_patch],
+                                loc='lower center', ncol=3, mode="none", borderaxespad=0., borderpad=0.8, edgecolor=(1.0, 1.0, 1.0, 0.0), prop=fnt_mgr)
+
+                # Configure axes and plot alternative methods' results if we have them
+                if plot_alt_results:
+                    if len(alt_results) == 1:
+                        if alt_results[0] == 'ihmm':
+                            # TODO: add option for bins=fixed_bins
+                            n_kv, bins_kv, patches_kv = ax2.hist(self.alt_method_results_ihmm["mode_means"], alpha=0.5, edgecolor=alt_color1, color=alt_color1, density=True, histtype='stepfilled')
+                            bins_tot_h = np.concatenate((bins, bins_kv))
+                            n_tot_h = np.concatenate((n, n_kv))
+                            # Configure axes
+                            ax1.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                            ax2.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                            ax1.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                            ax1.set_yticklabels(['0', f'{np.amax(n_tot_h)/2:.1f}', f'{np.amax(n_tot_h):.1f}'], fontsize=font_size)
+                            ax2.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                            ax2.set_yticklabels(['', '', ''], fontsize=font_size)
+                            ax1.set_xlim(int(np.amin(bins_tot_h)-2),int(np.amax(bins_tot_h)+2))
+                            ax2.set_xlim(int(np.amin(bins_tot_h)-2),int(np.amax(bins_tot_h)+2))
+                            # TODO: make these options not hard-coded
+                            #ax1.set_xticks([0, 20, 40])
+                            #ax2.set_xticks([0, 20, 40])
+                            #ax1.set_xticklabels(['0', '20', '40'], fontsize=font_size)
+                            #x2.set_xticklabels(['0', '20', '40'], fontsize=font_size)
+                            if show_prior:
+                                ax_1.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                                ax_1.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                                ax_1.set_yticklabels(['','',''], fontsize=font_size)
+                        elif alt_results[0] == 'kv':
+                            warnings.warn(f"BIC results cannot be plotted with hist_height_posterior option; use hist_height instead.", UserWarning)
+                else:
+                    ax1.set_ylim(0,np.amax(n)+np.amax(n)*0.1)
+                    ax1.set_yticks([0, np.amax(n)/2, np.amax(n)])
+                    ax1.set_yticklabels(['0', f'{np.amax(n)/2:.1f}', f'{np.amax(n):.1f}'], fontsize=font_size)
+                    ax1.set_xlim(int(np.amin(bins)-2),int(np.amax(bins)+2))
+                    # TODO: make these options not hard-coded
+                    # ax1.set_xticks([0, 20, 40])
+                    # ax1.set_xticklabels(['0', '20', '40'], fontsize=font_size)
+                    if show_prior:
+                        ax_1.set_ylim(0,np.amax(n)+np.amax(n)*0.1)
+                        ax_1.set_yticks([0, np.amax(n)/2, np.amax(n)])
+                        ax_1.set_yticklabels(['','',''], fontsize=font_size)
+                
+                # Show plot, then save figure
+                plt.show()
+                # TODO: add user option to generate figure type other than pdf
+                output_filename = fig_savename + '_hist_height_posterior' + '.pdf'
+                fig.savefig(output_filename, format='pdf')"""
+
+            elif (plot == 'hist_emission_separated'):
+                warnings.warn(f"Separated emission level histograms NYI", UserWarning)
+
+            elif (plot == 'survivorship'):
+                warnings.warn(f"Survivorship plots NYI", UserWarning)
+
+            elif (plot == 'hist_f'):
+                warnings.warn(f"F_bg histogram NYI", UserWarning)
+
+            elif (plot == 'hist_eta'):
+                warnings.warn(f"eta histogram NYI", UserWarning)

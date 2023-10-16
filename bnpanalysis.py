@@ -1,237 +1,100 @@
+"""
+Analysis tools for BNP-Step and the two alternative methods mentioned in the paper.
+
+Alex Rojewski, 2023
+"""
+
+import os
 import numpy as np
 import scipy as sp
 from scipy import special
 import matplotlib.pyplot as plt
 import csv
 
-"""
-def load_clean_data(filetype, filenum):
-    # Get parameters of data sets
-    with open('params' + filenum + '.txt', 'r') as f:
-        # Read out all values to strings
-        gt_num_jumps_str = f.readline().strip()
-        num_data_str = f.readline().strip()
-        t_aqr_str = f.readline().strip()
-        t_exp_str = f.readline().strip()
-        f_gt_str = f.readline().strip()
-        h_stp_str = f.readline().strip()
-        t_stp_str = f.readline().strip()
-        eta_str = f.readline().strip()
-        t_min_str = f.readline().strip()
-        weak_limit_str = f.readline().strip()
-        num_samples_str = f.readline().strip()
 
-    # Convert strings to floats
-    gt_num_jumps = int(float(gt_num_jumps_str))
-    num_data = int(float(num_data_str))
-    t_aqr = float(t_aqr_str)
-    t_exp = float(t_exp_str)
-    f_gt = float(f_gt_str)
-    h_stp = float(h_stp_str)
-    t_stp = float(t_stp_str)
-    eta = float(eta_str)
-    t_min = float(t_min_str)
-    weak_limit = int(float(weak_limit_str))
+def load_ihmm_mode_means(filename : str, 
+                         path = None
+                         ):
+    """
+    Loads the mean emission levels from all samples with the mode number of states
+    generated from the iHMM method of the Sgouralis 2016 paper.
 
-    # Determine the actual number of samples we have.
-    num_samples = 0
-    with open('ETA_' + filetype + filenum + '.txt', 'r') as f:
-        item = f.readline().strip()
-        while item != '':
-            num_samples += 1
-            item = f.readline().strip()
+    TODO: mention what these are used for
 
-    # Arrange the parameters into a numpy array
-    parameters = [gt_num_jumps, num_data, t_aqr, t_exp, f_gt, h_stp, t_stp, eta, t_min, weak_limit, num_samples]
-    parameters = np.asarray(parameters)
+    Note: to obtain results in the correct format, run the method with the custom MATLAB
+    script included in the repository, then run the cleanup scripts as described in the
+    repository readme.
 
-    # Initialize numpy vectors to store our samples
-    eta_vec = np.zeros(num_samples)
-    f_vec = np.zeros(num_samples)
-    b_vec = np.zeros((num_samples, weak_limit))
-    h_vec = np.zeros((num_samples, weak_limit))
-    t_vec = np.zeros((num_samples, weak_limit))
-    posteriors = np.zeros(num_samples)
-    data = np.zeros(num_data)
-    t_n = np.zeros(num_data)
+    Arguments:
+    filename (str) -- Name of the file to be loaded. The format is found in the repository readme.
+    path -- Path where the file is located.
 
-    # Open files and read data
-    # TODO: see if there is a faster way to do this
-    with open('B_' + filetype + filenum + '.txt', 'r') as f:
-        for i in range(num_samples):
-            for j in range(weak_limit):
-                item = f.readline().strip()
-                value = float(item)
-                b_vec[i, j] = value
-
-    with open('H_' + filetype + filenum + '.txt', 'r') as f:
-        for i in range(num_samples):
-            for j in range(weak_limit):
-                item = f.readline().strip()
-                value = float(item)
-                h_vec[i, j] = value
-
-    with open('T_' + filetype + filenum + '.txt', 'r') as f:
-        for i in range(num_samples):
-            for j in range(weak_limit):
-                item = f.readline().strip()
-                value = float(item)
-                t_vec[i, j] = value
-
-    with open('ETA_' + filetype + filenum + '.txt', 'r') as f:
-        for i in range(num_samples):
-            item = f.readline().strip()
-            value = float(item)
-            eta_vec[i] = value
-
-    with open('F_' + filetype + filenum + '.txt', 'r') as f:
-        for i in range(num_samples):
-            item = f.readline().strip()
-            value = float(item)
-            f_vec[i] = value
-
-    with open('posteriors' + filenum + '.txt', 'r') as f:
-        for i in range(num_samples):
-            item = f.readline().strip()
-            value = float(item)
-            posteriors[i] = value
-
-    # Correct posteriors for nan's - change them to -inf <--------------------------------------------------
-    for x in range(len(posteriors)):
-        if np.isnan(posteriors[x]):
-            posteriors[x] = -np.inf
-
-    # Load synthetic data
-    with open('synthdata' + filenum + '.txt', 'r') as f:
-        for i in range(num_data):
-            item = f.readline().strip()
-            value = float(item)
-            data[i] = value
-        for i in range(num_data):
-            item = f.readline().strip()
-            value = float(item)
-            t_n[i] = value
-
-    return parameters, b_vec, h_vec, t_vec, f_vec, eta_vec, posteriors, data, t_n
-
-def load_ground_truth_ihmm(num_data, filenum):
-    ground_traj = np.zeros(num_data)
-    ground_t = np.zeros(num_data)
-    with open('groundtruths' + filenum + '.txt', 'r') as f:
-        for i in range(num_data):
-            item = f.readline().strip()
-            value = float(item)
-            ground_traj[i] = value
-        for i in range(num_data):
-            item = f.readline().strip()
-            value = float(item)
-            ground_t[i] = value
-    return ground_traj, ground_t
-
-def load_kv_data(filenum):
-    # Get parameters of datasets
-    with open('params_KV' + filenum + '.txt', 'r') as f:
-        # Read out all values to strings
-        B_str = f.readline().strip()
-        N_str = f.readline().strip()
-        t_aqr_str = f.readline().strip()
-        t_exp_str = f.readline().strip()
-        F_str = f.readline().strip()
-        h_stp_str = f.readline().strip()
-        t_stp_str = f.readline().strip()
-        eta_str = f.readline().strip()
-        t_min_str = f.readline().strip()
-        B_max_str = f.readline().strip()
+    Returns:
+    heights (numpy array) -- The mode means from the iHMM.
+    """
+    # Input validation
+    if not isinstance(filename, str):
+            raise TypeError(f"filename should be of type str instead of {type(filename)}")
+    # TODO: validate path
+    full_name = filename + '.csv'
+    if path is not None:
+        full_path = os.path.join(path, full_name)
+    else:
+        full_path = full_name
     
-    # Convert strings to floats
-    B_file = float(B_str)
-    N_file = float(N_str)
-    t_aqr = float(t_aqr_str)
-    t_exp = float(t_exp_str)
-    F = float(F_str)
-    h_stp = float(h_stp_str)
-    t_stp = float(t_stp_str)
-    eta = float(eta_str)
-    t_min = float(t_min_str)
-    B_max_file = float(B_max_str)
-
-    # Change eta to standard deviation
-    eta = 1/(np.sqrt(eta))
-
-    # Convert certain values to ints
-    B = int(B_file)
-    N = int(N_file)
-    B_max = int(B_max_file)
-
-    # Arrange the parameters into a numpy array
-    parameters = [B, N, t_aqr, t_exp, F, h_stp, t_stp, eta, t_min, B_max]
-    parameters = np.asarray(parameters)
-
-    # Extract synthetic data
-    data = np.zeros(N)
-    t_n = np.zeros(N)
-    with open('synthdata_KV' + filenum + '.txt', 'r') as f:
-        for i in range(N):
-            item = f.readline().strip()
-            value = float(item)
-            data[i] = value
-        for i in range(N):
-            item = f.readline().strip()
-            value = float(item)
-            t_n[i] = value
-    
-    # Extract learned values
-    ETA = np.zeros(1)
-    H_M = np.zeros(1)
-    T_M = np.zeros(1)
-
-    with open('heights_KV' + filenum + '.txt', 'r') as f:
-        item = f.readline().strip()
-        if (item != ''):
-            value = float(item)
-            H_M[0] = value
-            item = f.readline().strip()
-            while (item != ''):
-                value = float(item)
-                H_M = np.append(H_M, [value])
-                item = f.readline().strip()
-    
-    # The last KV height is the "background" - strip it from height array
-    F_S = H_M[-1]
-    heights = np.zeros(H_M.size-1)
-    for i in range(H_M.size-1):
-        heights[i] = H_M[i]
-    
-    with open('jumptimes_KV' + filenum + '.txt', 'r') as f:
-        item = f.readline().strip()
-        while (item != ''):
-            value = float(item)
-            T_M = np.append(T_M, [value])
-            item = f.readline().strip()
-    
-    with open('variance_KV' + filenum + '.txt', 'r') as f:
-        item = f.readline().strip()
-        if (item != ''):
-            value = float(item)
-            ETA[0] = value
-            item = f.readline().strip()
-            while (item != ''):
-                value = float(item)
-                ETA = np.append(ETA, [value])
-                item = f.readline().strip()
-    
-    return parameters, H_M, T_M, F_S, ETA, data, t_n
-    
-def load_ihmm_heights(filenum):
+    # Load data
+    # TODO: make this use pandas for consistency with other functions
     heights = []
-    with open('mode_means_' + filenum + '.csv') as f:
+    with open(full_path) as f:
         csv_reader = csv.reader(f,delimiter=',')
         for row in csv_reader:
             tmp_data = row
             for n in range(len(tmp_data)):
                 heights.append(float(tmp_data[n]))
     heights = np.asarray(heights)
-    return heights"""
+
+    return heights
+
+
+def load_ihmm_mode_mean_trajectory(filename : str,
+                                   path = None
+                                   ):
+    """
+    Loads mode mean trajectory from iHMM method from the Sgouralis 2016 paper. This is what
+    is used to generate the step plot for the iHMM when comparing to BNP-Step.
+
+    Note: to obtain results in the correct format, run the method with the custom MATLAB
+    script included in the repository, then run the cleanup scripts as described in the
+    repository readme.
+
+    Arguments:
+    filename (str) -- Name of the file to be loaded. The format is found in the repository readme.
+
+    Returns:
+    sampled_heights (numpy array) -- The mode mean trajectory (as defined in Sgouralis 2016)
+                                     from the iHMM.
+    """
+    # Input validation
+    if not isinstance(filename, str):
+            raise TypeError(f"filename should be of type str instead of {type(filename)}")
+    # TODO: validate path
+    full_name = filename + '.csv'
+    if path is not None:
+        full_path = os.path.join(path, full_name)
+    else:
+        full_path = full_name
+    
+    # Read in data
+    sampled_heights  = []
+    with open(full_path) as f:
+        csv_reader = csv.reader(f,delimiter=',')
+        for row in csv_reader:
+            tmp_data = row
+            for n in range(len(tmp_data)):
+                sampled_heights.append(float(tmp_data[n]))
+    
+    return sampled_heights    
+
 
 """# Functions for cleaning analyzed data
 def graph_log_posterior(post_vec):
@@ -252,20 +115,49 @@ def graph_log_posterior(post_vec):
     return burn_in"""
 
 
-"""def remove_burn_in(b_vec, h_vec, t_vec, f_vec, eta_vec, post_vec, burn_in):
-    b_vec_clean = np.delete(b_vec, np.s_[0:burn_in], 0)
-    h_vec_clean = np.delete(h_vec, np.s_[0:burn_in], 0)
-    t_vec_clean = np.delete(t_vec, np.s_[0:burn_in], 0)
-    f_vec_clean = np.delete(f_vec, np.s_[0:burn_in], 0)
-    eta_vec_clean = np.delete(eta_vec, np.s_[0:burn_in], 0)
-    post_vec_clean = np.delete(post_vec, np.s_[0:burn_in], 0)
-    return b_vec_clean, h_vec_clean, t_vec_clean, f_vec_clean, eta_vec_clean, post_vec_clean"""
+def remove_burn_in(b_vec, h_vec, t_vec, f_vec, eta_vec, post_vec, n):
+    """
+    Removes the first n samples (burn-in).
+
+    Arguments:
+    b_vec (numpy array) -- Array of samples of the loads b_(1:M). Each sample is itself an array of M values.
+    h_vec (numpy array) -- Array of samples of the step heights h_(1:M). Each sample is itself an array of M values.
+    t_vec (numpy array) -- Array of samples of the step times t_(1:M). Each sample is itself an array of M values.
+    f_vec (numpy array) -- Array of samples of the background F_bg.
+    eta_vec (numpy array) -- Array of samples of the noise variance eta.
+    post_vec (numpy array) -- Array of the calculated log posterior for each sample.
+    n (int) -- Number of burn-in samples to discard.
+
+    Returns:
+    b_vec_clean (numpy array) -- Array of samples of the loads b_(1:M) with burn-in removed.
+    h_vec_clean (numpy array) -- Array of samples of the step heights h_(1:M) with burn-in removed.
+    t_vec_clean (numpy array) -- Array of samples of the step times t_(1:M) with burn-in removed.
+    f_vec_clean (numpy array) -- Array of samples of the background F_bg with burn-in removed.
+    eta_vec_clean (numpy array) -- Array of samples of the noise variance eta with burn-in removed.
+    post_vec_clean (numpy array) -- Array of log posteriors for each sample with burn-in removed.
+    """
+    b_vec_clean = np.delete(b_vec, np.s_[0:n], 0)
+    h_vec_clean = np.delete(h_vec, np.s_[0:n], 0)
+    t_vec_clean = np.delete(t_vec, np.s_[0:n], 0)
+    f_vec_clean = np.delete(f_vec, np.s_[0:n], 0)
+    eta_vec_clean = np.delete(eta_vec, np.s_[0:n], 0)
+    post_vec_clean = np.delete(post_vec, np.s_[0:n], 0)
+    
+    return b_vec_clean, h_vec_clean, t_vec_clean, f_vec_clean, eta_vec_clean, post_vec_clean
 
 
-# Functions for sorting analyzed data - helper function for creating
-# graph-able results from BNP samples.
-# TODO: this is slow, make it faster
 def parallel_bubble_sort(times, data):
+    """
+    Function for sorting data sets with time points in chronological order.
+
+    Arguments:
+    times (array, numpy array) -- Array of time points
+    data (array, numpy array) -- Array of observations
+
+    Returns:
+    sorted_times (numpy array) -- Array of sorted time points
+    sorted_data (numpy array) -- Array of observations sorted according to their time points
+    """
     num_times = len(times)
     for i in range(num_times):
         done_sorting = True
@@ -284,6 +176,24 @@ def parallel_bubble_sort(times, data):
 
 
 def find_map(b_vec, h_vec, t_vec, f_vec, eta_vec, posteriors):
+    """
+    Locates the maximum a posteriori (MAP) estimate sample from the results returned by BNP-Step.
+
+    Arguments:
+    b_vec (numpy array) -- Array of samples of the loads b_(1:M). Each sample is itself an array of M values.
+    h_vec (numpy array) -- Array of samples of the step heights h_(1:M). Each sample is itself an array of M values.
+    t_vec (numpy array) -- Array of samples of the step times t_(1:M). Each sample is itself an array of M values.
+    f_vec (numpy array) -- Array of samples of the background F_bg.
+    eta_vec (numpy array) -- Array of samples of the noise variance eta.
+    posteriors (numpy array) -- Array of the calculated log posterior for each sample.
+
+    Returns:
+    b_clean (numpy array) -- Array containing the b_m for the MAP estimate sample.
+    h_clean (numpy array) -- Array containing the h_m for the MAP estimate sample.
+    t_clean (numpy array) -- Array containing the t_m for the MAP estimate sample.
+    f_clean (numpy array) -- MAP estimate value for F_bg
+    eta_clean (numpy array) -- MAP estimate value for eta
+    """
     map_index = np.argmax(posteriors)
     f_clean = np.asarray(f_vec[int(map_index)])
     b_clean = np.asarray(b_vec[int(map_index)])
@@ -294,7 +204,32 @@ def find_map(b_vec, h_vec, t_vec, f_vec, eta_vec, posteriors):
     return b_clean, h_clean, t_clean, f_clean, eta_clean
 
 
-"""def find_top_samples(b_vec, h_vec, t_vec, f_vec, eta_vec, posteriors, num_samples, weak_limit):
+def find_top_n_samples(b_vec, h_vec, t_vec, f_vec, eta_vec, posteriors, weak_limit, num_samples=10):
+    """
+    Picks out the top n samples (how many is specified by the user) from those generated by BNP-Step,
+    regardless of how many steps are in the trajectory.
+
+    Note: this function is not used in the original paper, as it is difficult to compare models with
+    differing amounts of steps in a rigorous manner. We include this function in case the user wishes
+    to directly compare the trajectories of the "best" samples.
+
+    Arguments:
+    b_vec (numpy array) -- Array of samples of the loads b_(1:M). Each sample is itself an array of M values.
+    h_vec (numpy array) -- Array of samples of the step heights h_(1:M). Each sample is itself an array of M values.
+    t_vec (numpy array) -- Array of samples of the step times t_(1:M). Each sample is itself an array of M values.
+    f_vec (numpy array) -- Array of samples of the background F_bg.
+    eta_vec (numpy array) -- Array of samples of the noise variance eta.
+    posteriors (numpy array) -- Array of the calculated log posterior for each sample.
+    num_samples (int) -- Amount of samples to return.
+    weak_limit (int) -- Maximum number of possible steps
+
+    Returns:
+    b_m_top (numpy array) -- Array containing the b_m for the top samples.
+    h_m_top (numpy array) -- Array containing the h_m for top samples.
+    t_m_top (numpy array) -- Array containing the t_m for top samples.
+    f_top (numpy array) -- Top sample values for F_bg
+    eta_top (numpy array) -- Top sample values for eta
+    """
     f_top = np.zeros(num_samples)
     eta_top = np.zeros(num_samples)
     b_m_top = np.zeros((num_samples, weak_limit))
@@ -317,6 +252,24 @@ def find_map(b_vec, h_vec, t_vec, f_vec, eta_vec, posteriors):
 
 
 def find_top_samples_by_jumps(b_vec, h_vec, t_vec, f_vec, eta_vec, posteriors):
+    """
+    Picks out all samples with the MAP number of steps.
+
+    Arguments:
+    b_vec (numpy array) -- Array of samples of the loads b_(1:M). Each sample is itself an array of M values.
+    h_vec (numpy array) -- Array of samples of the step heights h_(1:M). Each sample is itself an array of M values.
+    t_vec (numpy array) -- Array of samples of the step times t_(1:M). Each sample is itself an array of M values.
+    f_vec (numpy array) -- Array of samples of the background F_bg.
+    eta_vec (numpy array) -- Array of samples of the noise variance eta.
+    posteriors (numpy array) -- Array of the calculated log posterior for each sample.
+
+    Returns: 
+    good_b_m (numpy array) -- Array containing the b_m for the samples.
+    good_h_m (numpy array) -- Array containing the h_m for the samples.
+    good_t_m (numpy array) -- Array containing the t_m for the samples.
+    good_f_s (numpy array) -- Sample values for F_bg
+    good_eta (numpy array) -- Sample values for eta
+    """
     # First determine MAP number of jumps
     map_index = np.argmax(posteriors)
     map_jump_number = np.sum(b_vec[int(map_index)])
@@ -344,11 +297,28 @@ def find_top_samples_by_jumps(b_vec, h_vec, t_vec, f_vec, eta_vec, posteriors):
     good_f_s = np.asarray(good_f_s)
     good_eta = np.asarray(good_eta)
 
-    return good_b_m, good_h_m, good_t_m, good_f_s, good_eta"""
+    return good_b_m, good_h_m, good_t_m, good_f_s, good_eta
 
 
 # Functions for generating graph-able data
 def generate_step_plot_data(b_vec, h_vec, t_vec, f_vec, weak_limit, t_n):
+    """
+    Generates a plottable trajectory from a MAP estimate sample from BNP-Step.
+
+    Arguments:
+    b_vec (numpy array) -- Array of MAP estimate b_m from a BNP-Step sample
+    h_vec (numpy array) -- Array of MAP estimate h_m from a BNP-Step sample
+    t_vec (numpy array) -- Array of MAP estimate t_m from a BNP-Step sample
+    f_vec (numpy array) -- MAP estimate F_bg from a BNP-Step sample
+    weak_limit (int) -- Maximum possible number of steps in the data set
+    t_n (array, numpy array) -- Array of time points for the trajectory.
+
+    Returns:
+    sorted_times (numpy array) -- Array of time points for the trajectory
+    sorted_data (numpy array) -- Array of pseudo-observations (calculated using
+                                 the samples and the forward model) that define 
+                                 the sampled trajectory
+    """
     # Count total number of transitions
     jmp_count = 0
     for i in range(weak_limit):
@@ -358,7 +328,7 @@ def generate_step_plot_data(b_vec, h_vec, t_vec, f_vec, weak_limit, t_n):
     sampled_loads = np.ones(jmp_count)
     sampled_times = np.zeros(jmp_count)
     sampled_heights = np.zeros(jmp_count)
-    # Strip out all non-jump points
+    # Strip out all the 'off' loads
     ind = 0
     for i in range(weak_limit):
         if b_vec[i] == 1:
@@ -378,20 +348,43 @@ def generate_step_plot_data(b_vec, h_vec, t_vec, f_vec, weak_limit, t_n):
         bht_matrix = np.multiply(bh_matrix,
                                  np.heaviside((-1 * (obs_time_matrix - times_matrix)),
                                               np.ones((jmp_count, jmp_count))))
-    # Calculate sum term - this is your sampled data
+    # Calculate sum term - these are the pseudo-observations
     sampled_data = f_vec + np.sum(bht_matrix, axis=1)
 
     # Make arrays for graphing step plots
     sorted_times, sorted_data = parallel_bubble_sort(sampled_times, sampled_data)
     sorted_times = np.insert(sorted_times, 0, 0)
 
+    # mpl's step plotting functions needs a zero point and an end point to display
+    # all the steps correctly
     sorted_times[0] = t_n[0]
     sorted_times = np.append(sorted_times, t_n[int(len(t_n)) - 1])
+    # TODO: this "end point" is based on synthetic data sets which end with
+    # zero signal. This behavior does not generalize to other sets; fix this!
     sorted_data = np.append(sorted_data, f_vec)
 
     return sorted_times, sorted_data
 
+
 def generate_gt_step_plot_data(ground_b_m, ground_h_m, ground_t_m, ground_f, data_times, weak_limit):
+    """
+    Generates a ground truth trajectory for data sets where the ground truth is known.
+    Currently, this only supports the synthetic data sets described in the paper.
+
+    Arguments:
+    ground_b_m (numpy array) -- Ground truth loads
+    ground_h_m (numpy array) -- Ground truth step heights
+    ground_t_m (numpy array) -- Ground truth step times
+    ground_f (numpy array) -- Ground truth value for F_bg
+    data_times (numpy array) -- Array of time points for the trajectory
+    weak_limit (int) -- Maximum possible number of steps in the data set
+
+    Returns:
+    sorted_times (numpy array) -- Array of time points for the trajectory
+    sorted_data (numpy array) -- Array of pseudo-observations (calculated using
+                                 the ground truths and the forward model) that define 
+                                 the ground truth trajectory
+    """
     # Count total number of jump points
     jmp_count_gnd = 0
     for i in range(weak_limit):
@@ -434,15 +427,53 @@ def generate_gt_step_plot_data(ground_b_m, ground_h_m, ground_t_m, ground_f, dat
 
     return sorted_times, sorted_data
 
-"""def generate_kv_step_plot_data(jump_times, heights, background, data_times):
+
+def generate_kv_step_plot_data(jump_times, heights, background, data_times):
+    """
+    Generates step plot data from BIC-based method results.
+
+    Arguments:
+    jump_times (numpy array) -- Array of jump times returned by BIC method
+    heights (numpy array) -- Array of inter-step means returned by BIC method. Does not include the final mean.
+    background (float) -- Value of final inter-step mean returned by BIC method.
+    data_times (numpy array) -- Array of time points
+
+    Returns:
+    plot_times (numpy array) -- Array of time points for the trajectory
+    plot_heights (numpy array) -- Array of pseudo-observations (calculated using
+                                  the BIC results and the forward model) that define 
+                                  the learned trajectory
+    """
+    # Add first observation time point to start of array, and duplicate end point (otherwise
+    # mpl's stairs function will fail)
     plot_times = np.append(jump_times, data_times[int(len(data_times))-1])
-    plot_times = np.append(plot_times, data_times[int(len(data_times))-1])
-    plot_times[0] = data_times[0]
+    plot_times = np.insert(plot_times, 0, data_times[0])
+
+    # Re append the background value
+    # TODO: look into streamlining this by never separating the final mean in the first place
     plot_heights = np.append(heights, background)
 
-    return plot_times, plot_heights"""
+    return plot_times, plot_heights
 
-"""def generate_histogram_data(b_vec, h_vec, t_vec, num_samples, weak_limit):
+
+def generate_histogram_data(b_vec, h_vec, t_vec, num_samples, weak_limit):
+    """
+    Processes raw BNP-Step results into a format that can be histogrammed.
+    Note: it is strongly recommended to use only the samples with the MAP number
+    of jumps.
+    # TODO: clarify why this is in simple language
+
+    Arguments:
+    b_vec (numpy array) -- Array of b_m from BNP-Step samples
+    h_vec (numpy array) -- Array of h_m from BNP-Step samples
+    t_vec (numpy array) -- Array of t_m from BNP-Step samples
+    num_samples (int) -- Number of samples kept for histogramming
+    weak_limit (int) -- Maximum possible number of steps in the data set
+
+    Returns:
+    histogram_heights (numpy array) -- Array of absolute values of the step heights
+    histogram_lengths (numpy array) -- Array of holding times between the steps
+    """
     # Prepare data for histogramming
     histogram_heights = []
     histogram_lengths = []
@@ -463,7 +494,24 @@ def generate_gt_step_plot_data(ground_b_m, ground_h_m, ground_t_m, ground_f, dat
 
     return histogram_heights, histogram_lengths
 
+
 def generate_histogram_data_ihmm(b_vec, h_vec, t_vec, f_vec, weak_limit):
+    """
+    Generates histogrammable data sets for comparison to iHMM method.
+    In this case, emission levels are calculated for histogramming,
+    rather than just using the step heights themselves.
+
+    Arguments:
+    b_vec (numpy array) -- Array of b_m from BNP-Step samples
+    h_vec (numpy array) -- Array of h_m from BNP-Step samples
+    t_vec (numpy array) -- Array of t_m from BNP-Step samples
+    f_vec (numpy array) -- F_bg from BNP-Step samples
+    weak_limit (int) -- Maximum possible number of steps in the data set
+
+    Returns:
+    all_sorted_times (numpy array) -- Numpy array of all step times
+    all_sorted_data (numpy array) -- Numpy array of all emission levels
+    """
     # Count total number of samples and total number of jump points
     num_samps = b_vec.shape[0]
     jmp_count = 0
@@ -516,6 +564,22 @@ def generate_histogram_data_ihmm(b_vec, h_vec, t_vec, f_vec, weak_limit):
 
 
 def generate_histogram_data_kv(heights, jumptimes):
+    """
+    Processes BIC-based method results into a format that can be histogrammed.
+
+    Arguments:
+    heights (numpy array) -- Array of inter-step means from BIC-based method
+    jumptimes (numpy array) -- Array of jump times from BIC-based method
+
+    Note: this returns a frequentist-style histogram. For a single data set,
+    histograms of the results may not be useful unless step heights and holding
+    times are repeated frequently (as is the case with the synthetic data sets
+    used in the paper.)
+
+    Returns:
+    histogram_heights (numpy array) -- Array of absolute values of the step heights
+    histogram_lengths (numpy array) -- Array of holding times between the steps
+    """
     # Prepare data for histogramming
     histogram_heights = []
     histogram_lengths = []
@@ -536,7 +600,7 @@ def generate_histogram_data_kv(heights, jumptimes):
     return histogram_heights, histogram_lengths
 
 
-# Functions for calculating log-posterior and log-likelihood - used to calculate the ground truth values
+"""# Functions for calculating log-posterior and log-likelihood - used to calculate the ground truth values
 # for synthetic data.
 def calculate_gt_loglikelihood(weak_limit, num_data, data_points, data_times, b_m_vec, h_m_vec,
                                t_m_vec, f_vec, eta_vec):
@@ -687,18 +751,32 @@ def make_inverse_dist_unfolding(t_m, h_m, lower_limit, upper_limit):
     unfolding_long = np.insert(unfolding_long, 0, 0)
     unfolding_long = np.append(unfolding_long, unfolding_long[-1])
     
-    return folding, unfolding_short, unfolding_long, survivors_folding, survivors_unfolding_short, survivors_unfolding_long
+    return folding, unfolding_short, unfolding_long, survivors_folding, survivors_unfolding_short, survivors_unfolding_long"""
 
-def get_confidence(states):
+def get_credible_intervals(states):
+    """
+    Calculates the credible intervals associated with an array.
+
+    Arguments:
+    states (numpy array) -- Array of values for which CI's will be calculated.
+
+    Returns:
+    mean -- Mean of the values in the array
+    under95 -- Left boundary for 95% CI
+    under50 -- Left boundary for 50% CI
+    median -- Median of the values in the array
+    upper50 -- Right boundary for 50% CI
+    upper95 -- Right boundary for 95% CI
+    """
     mean = np.mean(states)
     under95 = np.percentile(states,2.5)
     under50 = np.percentile(states,25)
     median = np.percentile(states,50)
     upper50 = np.percentile(states,75)
     upper95 = np.percentile(states,97.5)
-    return mean,under95,under50,median,upper50,upper95
+    return mean, under95, under50, median, upper50, upper95
 
-def get_confidence_wide(states):
+"""def get_confidence_wide(states):
     mean = np.mean(states)
     under99 = np.percentile(states,2.5)
     under50 = np.percentile(states,25)
