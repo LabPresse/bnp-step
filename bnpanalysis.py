@@ -69,6 +69,7 @@ def load_ihmm_mode_mean_trajectory(filename : str,
 
     Arguments:
     filename (str) -- Name of the file to be loaded. The format is found in the repository readme.
+    path -- Path where the file is located.
 
     Returns:
     sampled_heights (numpy array) -- The mode mean trajectory (as defined in Sgouralis 2016)
@@ -93,7 +94,79 @@ def load_ihmm_mode_mean_trajectory(filename : str,
             for n in range(len(tmp_data)):
                 sampled_heights.append(float(tmp_data[n]))
     
+    sampled_heights = np.asarray(sampled_heights)
+
     return sampled_heights    
+
+
+def load_ihmm_samples(filename : str, 
+                      skip_indices : str, 
+                      path = None
+                      ):
+    """
+    Loads generated samples from iHMM method from the Sgouralis 2016 paper. Only those samples
+    with the mode number of states are selected.
+
+    Note: to obtain results in the correct format, run the method with the custom MATLAB
+    script included in the repository, then run the cleanup scripts as described in the
+    repository readme.
+
+    Arguments:
+    filename (str) -- Name of the file to be loaded. The format is found in the repository readme.
+    skip_indices (str) -- File with the list of samples to skip (those that do not have the mode
+                          number of states).
+    path -- Path where the file is located.
+
+    Returns:
+    sampled_heights (numpy array) -- The mode mean trajectory (as defined in Sgouralis 2016)
+                                     from the iHMM.
+    """
+    # Input validation
+    if not isinstance(filename, str):
+            raise TypeError(f"filename should be of type str instead of {type(filename)}")
+    if not isinstance(skip_indices, str):
+            raise TypeError(f"skip_indices should be of type str instead of {type(skip_indices)}")
+    # TODO: validate path
+
+    full_name = filename + '.csv'
+    if path is not None:
+        full_path = os.path.join(path, full_name)
+    else:
+        full_path = full_name
+
+    ind_name = skip_indices + '.csv'
+    if path is not None:
+        ind_path = os.path.join(path, ind_name)
+    else:
+        ind_path = ind_name
+    
+    # Read in skip indices
+    skip_ind  = []
+    with open(ind_path) as f:
+        csv_reader = csv.reader(f,delimiter=',')
+        for row in csv_reader:
+            tmp_data = row
+            for n in range(len(tmp_data)):
+                skip_ind.append(int(tmp_data[n]))
+    
+    # Read in samples
+    samples = []
+    cur_ind = 0
+    with open(full_path) as f:
+        csv_reader = csv.reader(f,delimiter=',')
+        ind_count = 1
+        for row in csv_reader:
+            if cur_ind < len(skip_ind) and ind_count == skip_ind[cur_ind]:
+                cur_ind += 1
+                ind_count += 1
+                continue
+            tmp_data = row
+            samples.append(tmp_data)
+            ind_count += 1
+
+    samples = np.asarray(samples)
+
+    return samples
 
 
 """# Functions for cleaning analyzed data
@@ -456,7 +529,7 @@ def generate_kv_step_plot_data(jump_times, heights, background, data_times):
     return plot_times, plot_heights
 
 
-def generate_histogram_data(b_vec, h_vec, t_vec, num_samples, weak_limit):
+def generate_histogram_data(b_vec, h_vec, t_vec, num_samples, weak_limit, times):
     """
     Processes raw BNP-Step results into a format that can be histogrammed.
     Note: it is strongly recommended to use only the samples with the MAP number
@@ -485,6 +558,8 @@ def generate_histogram_data(b_vec, h_vec, t_vec, num_samples, weak_limit):
                 histogram_heights.append(h_vec[i, j])
                 temp_times.append(t_vec[i, j])
         temp_times = np.sort(temp_times)
+        temp_times = np.insert(temp_times, 0, times[0])
+        temp_times = np.append(temp_times, times[-1])
         for j in range(len(temp_times)):
             if j != 0:
                 histogram_lengths.append(temp_times[j] - temp_times[j - 1])
@@ -495,7 +570,43 @@ def generate_histogram_data(b_vec, h_vec, t_vec, num_samples, weak_limit):
     return histogram_heights, histogram_lengths
 
 
-def generate_histogram_data_ihmm(b_vec, h_vec, t_vec, f_vec, weak_limit):
+def generate_histogram_data_ihmm(samples, times):
+    """
+    Converts iHMM results to step height form for histogramming. Also
+    returns the holding times.
+
+    Arguments:
+    samples (numpy array) -- Array of iHMM samples with the mode number of states.
+    times (numpy array) -- Time points for each observation
+
+    Returns:
+    histogram_heights (numpy array) -- Array of absolute values of the step heights
+    histogram_lengths (numpy array) -- Array of holding times between the steps
+    """
+    histogram_heights = []
+    histogram_times = []
+
+    num_samples = samples.shape[0]
+    traj_len = samples.shape[1]
+
+    for i in range(num_samples):
+        time_prev = times[0]
+        for j in range(traj_len):
+            if j == 0:
+                continue
+            else:
+                if samples[i, j] != samples[i, j - 1]:
+                    histogram_times.append(times[j] - time_prev)
+                    time_prev = times[j]
+                    histogram_heights.append(float(samples[i, j]) - float(samples[i, j - 1]))
+
+    histogram_heights = np.absolute(np.asarray(histogram_heights))
+    histogram_times = np.asarray(histogram_times)
+
+    return histogram_heights, histogram_times
+
+
+def generate_histogram_data_emission(b_vec, h_vec, t_vec, f_vec, weak_limit):
     """
     Generates histogrammable data sets for comparison to iHMM method.
     In this case, emission levels are calculated for histogramming,

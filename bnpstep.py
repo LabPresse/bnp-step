@@ -490,23 +490,42 @@ class BNPStep:
     def load_ihmm_results(self, 
                           filename_mm : str, 
                           filename_mmt : str,
+                          filename_samples : str,
+                          filename_inds : str,
                           path = None
                           ):
         """
-        Loads results from iHMM method into self.alt_method_results_ihmm for comparison plotting
+        Loads results from iHMM method into self.alt_method_results_ihmm for comparison plotting.
+
+        Arguments:
+        filename_mm (str) -- Name of file where all state emission levels (conditioned on the mode number of states)
+                             are stored.
+        filename_mmt (str) -- Name of file where mode emission mean trajectory is stored.
+        filename_samples (str) -- Name of the file where all samples are stored. Samples with the mode number of states
+                                  will have their state label replaced with the appropriate emission level. Samples that
+                                  do not have the mode number of states are represented by their state label only and
+                                  are removed prior to storage in the object attribute.
+        filename_inds (str) -- Name of file storing indices of samples that do not have the mode number of states. This
+                               guides which samples are skipped over during loading.
         """
         # Input validation
         if not isinstance(filename_mm, str):
                 raise TypeError(f"filename_mm should be of type str instead of {type(filename_mm)}")
         if not isinstance(filename_mmt, str):
                 raise TypeError(f"filename_mmt should be of type str instead of {type(filename_mmt)}")
+        if not isinstance(filename_samples, str):
+                raise TypeError(f"filename_samples should be of type str instead of {type(filename_samples)}")
+        if not isinstance(filename_inds, str):
+                raise TypeError(f"filename_inds should be of type str instead of {type(filename_inds)}")
         # TODO: validate path
 
         ihmm_mode_means = bnpa.load_ihmm_mode_means(filename_mm, path)
 
         ihmm_mode_mean_trajectory =  bnpa.load_ihmm_mode_mean_trajectory(filename_mmt, path)
 
-        self.alt_method_results_ihmm = {"mode_means": ihmm_mode_means, "mode_mean_traj": ihmm_mode_mean_trajectory}
+        ihmm_samples = bnpa.load_ihmm_samples(filename_samples, filename_inds, path)
+
+        self.alt_method_results_ihmm = {"mode_means": ihmm_mode_means, "mode_mean_traj": ihmm_mode_mean_trajectory, "samples": ihmm_samples}
 
     
     def plot_data(self,
@@ -621,18 +640,54 @@ class BNPStep:
         plot_type (str or list of str) -- Type of plot to be generated. If more than one is desired, pass the options
                                           as a list of strings. Valid options are:
                                                 'step': Learned trajectory plotted over the dataset. For BNP-Step the
-                                                        MAP estimate sample is used. If alternative methods' results
-                                                        exist (see below), the criterion for the 'best' result varies
-                                                        by method.
+                                                        MAP estimate sample is used. For BIC results, the point estimate
+                                                        is used. For iHMM results, the mode emission mean trajectory is
+                                                        used.
                                                 'hist_step_height': Histograms of the step heights (the difference between
-                                                                    two adjacent emission levels). For BNP-Step, all samples
-                                                                    with the MAP number of steps are used.
-                                          Planned options include 'hist_dwell_time', 'hist_emission', 'hist_emission_separated',
-                                          'survivorship', 'hist_f', and 'hist_eta'
+                                                                    two adjacent emission levels). For BNP-Step, this amounts
+                                                                    to the joint posterior distribution over all h_m, conditioned
+                                                                    on the MAP number of steps. For BIC results, this is a frequentist
+                                                                    histogram over all learned step heights in a trace; since this
+                                                                    is a point estimate, it is recommended to only use this option
+                                                                    when comparing aggregated datasets (as was done in the paper).
+                                                                    For iHMM results, this is a distribution over all step heights
+                                                                    from all samples conditioned on the mode number of states.
+                                                'hist_dwell_time': Histograms of the holding times. For BNP-Step, this amounts
+                                                                   to the joint posterior distribution over all holding times,
+                                                                   conditioned on the MAP number of steps. For BIC results, this is
+                                                                   a frequentist histogram of all learned holding times in a trace
+                                                                   (see description under 'hist_step_height' for caveats). For
+                                                                   iHMM results, this is a distribution over all holding times
+                                                                   from all samples conditioned on the mode number of states.
+                                                'hist_emission': Histograms of the emission levels. For BNP-Step, this is the 
+                                                                 joint posterior distribution over all emission levels, conditioned
+                                                                 on the MAP number of steps. For BIC results, this is a frequentist
+                                                                 histogram of all learned emission levels in a trace (see above for
+                                                                 caveats). For iHMM results, this is a distribution over all emission
+                                                                 levels from all samples conditioned on the mode number of states.
+                                          Planned options include 'hist_height_separated', 'hist_dwell_separated', 
+                                          'hist_emission_separated', 'survivorship', 'hist_f', and 'hist_eta'
+                                          Default: 'step'
+        font_size : int = 16,
+        datacolor : str = '#929591',
+        learncolor : str = '#f97306',
+        gtcolor : str = '#00ffff',
+        alt_color1 : str = '#5d3a9b',
+        alt_color2 : str = '#c20078',
+        alt_color3 : str = '#d31a0c',
+        alt_color4 : str = '#fac205',
+        x_label : str =  'x-values',
+        y_label : str =  'y-values',
+        show_prior : bool = True,
+        show_ci : bool = True,
+        plot_alt_results : bool = False,
+        alt_results : Union[str, List[str]] = '',
+        fig_savename : str = 'figure'
 
         Results:
-
+        The selected plots, which are displayed on-screen and saved to disk in BNP-Step's directory.
         """
+        # TODO: Tons of repeated code that needs to be refactored/moved to their own functions
         # TODO: Better input validation for dataset dict
         # Validate that we actually have non-empty dataset and results loaded
         if self.B_M is None or self.H_M is None or self.T_M is None or self.F_S is None or self.ETA is None:
@@ -710,6 +765,10 @@ class BNPStep:
             elif plot == 'hist_dwell_time':
                 has_valid_plot_type = True
             elif plot == 'hist_emission':
+                has_valid_plot_type = True
+            elif plot == 'hist_height_separated':
+                has_valid_plot_type = True
+            elif plot == 'hist_dwell_separated':
                 has_valid_plot_type = True
             elif plot == 'hist_emission_separated':
                 has_valid_plot_type = True
@@ -989,7 +1048,7 @@ class BNPStep:
                 # Generate histogram sets
                 good_b_m, good_h_m, good_t_m, good_f_s, good_eta = bnpa.find_top_samples_by_jumps(b_clean, h_clean, t_clean, f_clean, eta_clean, post_clean)
                 # TODO: let the user choose how many samples go into the histograms.
-                hist_heights, _ = bnpa.generate_histogram_data(good_b_m, good_h_m, good_t_m, len(good_eta), self.B_max)
+                hist_heights, _ = bnpa.generate_histogram_data(good_b_m, good_h_m, good_t_m, len(good_eta), self.B_max, t_n)
                 
                 # Plotting - todo: set bins=fixed_bins
                 n, bins, patches = ax1.hist(hist_heights, alpha=0.5, edgecolor=learncolor, color=learncolor, density=True, histtype='stepfilled')
@@ -1046,14 +1105,11 @@ class BNPStep:
                             handle_array.append(purple_patch)
                             num_cols += 1
                         elif alt_results[0] == 'ihmm':
-                            warnings.warn(f"iHMM results cannot be plotted with hist_height option, NYI.", UserWarning)
-                            #hist_heights_kv, _ = bnpa.generate_histogram_data_kv(self.alt_method_results_kv["means"], self.alt_method_results_kv["jump_times"])
+                            hist_heights_ihmm, _ = bnpa.generate_histogram_data_ihmm(self.alt_method_results_ihmm["samples"], t_n)
                             # TODO: add option for bins=fixed_bins
-                            #n_kv, bins_kv, patches_kv = ax2.hist(hist_heights_kv, alpha=0.5, edgecolor=alt_color1, color=alt_color1, density=True, histtype='stepfilled')
-                            #bins_tot_h = np.concatenate((bins, bins_kv))
-                            #n_tot_h = np.concatenate((n, n_kv))
-                            bins_tot_h = bins
-                            n_tot_h = n
+                            n_kv, bins_kv, patches_kv = ax2.hist(hist_heights_ihmm, alpha=0.5, edgecolor=alt_color4, color=alt_color4, density=True, histtype='stepfilled')
+                            bins_tot_h = np.concatenate((bins, bins_kv))
+                            n_tot_h = np.concatenate((n, n_kv))
                             # Configure axes
                             ax1.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
                             ax2.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
@@ -1092,14 +1148,13 @@ class BNPStep:
                             handle_array.append(yellow_patch)
                             num_cols += 1
                     elif len(alt_results) == 2:
-                        warnings.warn(f"iHMM results cannot be plotted with hist_height option, NYI.", UserWarning)
                         hist_heights_kv, _ = bnpa.generate_histogram_data_kv(self.alt_method_results_kv["means"], self.alt_method_results_kv["jump_times"])
-                        #hist_heights_kv, _ = bnpa.generate_histogram_data_kv(self.alt_method_results_kv["means"], self.alt_method_results_kv["jump_times"])
+                        hist_heights_ihmm, _ = bnpa.generate_histogram_data_ihmm(self.alt_method_results_ihmm["samples"], t_n)
                         # TODO: add option for bins=fixed_bins
                         n_kv, bins_kv, patches_kv = ax2.hist(hist_heights_kv, alpha=0.5, edgecolor=alt_color1, color=alt_color1, density=True, histtype='stepfilled')
-                        #n_kv, bins_kv, patches_kv = ax3.hist(hist_heights_kv, alpha=0.5, edgecolor=alt_color1, color=alt_color1, density=True, histtype='stepfilled')
-                        bins_tot_h = np.concatenate((bins, bins_kv))
-                        n_tot_h = np.concatenate((n, n_kv))
+                        n_kv2, bins_kv2, patches_kv2 = ax3.hist(hist_heights_ihmm, alpha=0.5, edgecolor=alt_color4, color=alt_color4, density=True, histtype='stepfilled')
+                        bins_tot_h = np.concatenate((bins, bins_kv, bins_kv2))
+                        n_tot_h = np.concatenate((n, n_kv, n_kv2))
                         # Configure axes
                         ax1.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
                         ax2.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
@@ -1202,11 +1257,6 @@ class BNPStep:
                 fig.savefig(output_filename, format='pdf')
 
             elif (plot == 'hist_dwell_time'):
-                warnings.warn(f"Dwell time histograms NYI", UserWarning)
-
-            elif (plot == 'hist_emission'):
-                warnings.warn(f"Emission level histograms NYI", UserWarning)
-                """# TODO: change this so you are always histogramming the enission level, and add support for BIC.
                 # General figure setup
                 fig = plt.figure()
 
@@ -1218,13 +1268,13 @@ class BNPStep:
                     ax1 = fig.add_subplot(gs2[0])
                     ax2 = fig.add_subplot(gs2[1])
                 elif plot_alt_results and len(alt_results) == 2:
-                    warnings.warn(f"BIC method results cannot be plotted with hist_height_posterior option; use hist_height instead.", UserWarning)
                     gs1 = GridSpec(1, 1, bottom=0.8)  # For legend
                     ax0 = fig.add_subplot(gs1[0])
                     ax0.axis('off')
-                    gs2 = GridSpec(1, 2, top=0.85, wspace=0.07, hspace=0.05)  # For actual plot
+                    gs2 = GridSpec(1, 3, top=0.85, wspace=0.07, hspace=0.05)  # For actual plot
                     ax1 = fig.add_subplot(gs2[0])
                     ax2 = fig.add_subplot(gs2[1])
+                    ax3 = fig.add_subplot(gs2[2])
                 else:
                     gs1 = GridSpec(1, 1, bottom=0.8)  # For legend
                     ax0 = fig.add_subplot(gs1[0])
@@ -1236,61 +1286,35 @@ class BNPStep:
                 fig.supylabel(y_label, x=0.05, fontsize=font_size)
 
                 # Legend setup
-                orange_patch = mpatches.Patch(color=learncolor, alpha=0.7, label='BNP-Step')
-                purple_patch = mpatches.Patch(color=alt_color1, alpha=0.7, label='iHMM')
+                orange_patch = mpatches.Patch(color=learncolor, alpha=0.5, label='BNP-Step')
+                purple_patch = mpatches.Patch(color=alt_color1, alpha=0.5, label='BIC')
+                yellow_patch = mpatches.Patch(color=alt_color4, alpha=0.5, label='iHMM')
                 cyan_patch = mpatches.Patch(color=gtcolor, label='Ground truths')
                 magenta_patch = mpatches.Patch(color=alt_color2, label='Prior')
-
-                # Prepare fixed bins - NYI, should be an option users choose
-                #fixed_bins = np.arange(-10,20,0.05)
-
-                # Plot ground truths if we have them
-                if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
-                    if self.dataset["parameters"]["type"] == 'hmm':
-                        ax1.vlines(self.dataset["parameters"]["h_step"], 0, 100, color=gtcolor, zorder=10)
-                        ax1.vlines(self.dataset["parameters"]["h_step2"], 0, 100, color=gtcolor, zorder=10)
-                        if self.dataset["parameters"]["h_step3"] is not None:
-                            ax1.vlines(self.dataset["parameters"]["h_step3"], 0, 100, color=gtcolor, zorder=10)
-                        if self.dataset["parameters"]["h_step4"] is not None:
-                            ax1.vlines(self.dataset["parameters"]["h_step4"], 0, 100, color=gtcolor, zorder=10)
-                        if self.dataset["parameters"]["h_step5"] is not None:
-                            ax1.vlines(self.dataset["parameters"]["h_step5"], 0, 100, color=gtcolor, zorder=10)
-                    elif self.dataset["parameters"]["type"] == 'kv':
-                        warnings.warn(f"Ground truth plotting for BIC-style data sets NYI", UserWarning)
+                red_patch = mpatches.Patch(color=alt_color3, alpha=0.2, label='95% CR')
                 
+                # Prepare fixed bins - NYI, should be an option in input arguments
+                #fixed_bins = np.arange(0,41,2)
 
-                # Strip out samples with the MAP number of steps, then generate the histogrammable data set
-                b_m_top, h_m_top, t_m_top, f_back_top, eta_top = bnpa.find_top_samples_by_jumps(b_clean, h_clean, t_clean, f_clean, eta_clean, post_clean)
-                sample_times, sample_data = bnpa.generate_histogram_data_ihmm(b_m_top, h_m_top, t_m_top, f_back_top, self.B_max)
+                # Generate histogram sets
+                good_b_m, good_h_m, good_t_m, good_f_s, good_eta = bnpa.find_top_samples_by_jumps(b_clean, h_clean, t_clean, f_clean, eta_clean, post_clean)
+                # TODO: let the user choose how many samples go into the histograms.
+                _, hist_dwells = bnpa.generate_histogram_data(good_b_m, good_h_m, good_t_m, len(good_eta), self.B_max, t_n)
                 
-                # Ravel the dataset for histogramming
-                hist_data = np.ravel(sample_data)
+                # Plotting - todo: set bins=fixed_bins
+                n, bins, patches = ax1.hist(hist_dwells, alpha=0.5, edgecolor=learncolor, color=learncolor, density=True, histtype='stepfilled')
 
-                # Plot histogram
-                # TODO: add bins=fixed_bins option
-                n, bins, patches = ax1.hist(hist_data, alpha=0.5, edgecolor=learncolor, density=True, color=learncolor, histtype='stepfilled')
-                
-                # Plot prior if we chose this option
-                if show_prior:
-                    prior_x = np.linspace(self.h_ref-2*(1/np.sqrt(self.chi)), self.h_ref+2*(1/np.sqrt(self.chi)), 200)
-                    prior_h = np.sqrt(self.chi/(2*np.pi))*np.exp(-(self.chi/2)*(prior_x-self.h_ref)**2)
-                    ax1.plot(prior_x, prior_h, label='Prior', color=alt_color2, zorder=5, linewidth=3.0)
-
-                # Add legend
-                # TODO: fix this so it only shows legend entries the user actually selected
-                if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
-                    ax0.legend(bbox_to_anchor=(0., 1.08, 1., .102), handles=[orange_patch, purple_patch, cyan_patch, magenta_patch],
-                                loc='lower center', ncol=4, mode="none", borderaxespad=0., borderpad=0.8, edgecolor=(1.0, 1.0, 1.0, 0.0), prop=fnt_mgr)
-                else:
-                    ax0.legend(bbox_to_anchor=(0., 1.08, 1., .102), handles=[orange_patch, purple_patch, magenta_patch],
-                                loc='lower center', ncol=3, mode="none", borderaxespad=0., borderpad=0.8, edgecolor=(1.0, 1.0, 1.0, 0.0), prop=fnt_mgr)
+                # Legend parameters
+                handle_array = [orange_patch]
+                num_cols = 1
 
                 # Configure axes and plot alternative methods' results if we have them
                 if plot_alt_results:
                     if len(alt_results) == 1:
-                        if alt_results[0] == 'ihmm':
+                        if alt_results[0] == 'kv':
+                            _, hist_dwells_kv = bnpa.generate_histogram_data_kv(self.alt_method_results_kv["means"], self.alt_method_results_kv["jump_times"])
                             # TODO: add option for bins=fixed_bins
-                            n_kv, bins_kv, patches_kv = ax2.hist(self.alt_method_results_ihmm["mode_means"], alpha=0.5, edgecolor=alt_color1, color=alt_color1, density=True, histtype='stepfilled')
+                            n_kv, bins_kv, patches_kv = ax2.hist(hist_dwells_kv, alpha=0.5, edgecolor=alt_color1, color=alt_color1, density=True, histtype='stepfilled')
                             bins_tot_h = np.concatenate((bins, bins_kv))
                             n_tot_h = np.concatenate((n, n_kv))
                             # Configure axes
@@ -1302,36 +1326,468 @@ class BNPStep:
                             ax2.set_yticklabels(['', '', ''], fontsize=font_size)
                             ax1.set_xlim(int(np.amin(bins_tot_h)-2),int(np.amax(bins_tot_h)+2))
                             ax2.set_xlim(int(np.amin(bins_tot_h)-2),int(np.amax(bins_tot_h)+2))
-                            # TODO: make these options not hard-coded
-                            #ax1.set_xticks([0, 20, 40])
-                            #ax2.set_xticks([0, 20, 40])
-                            #ax1.set_xticklabels(['0', '20', '40'], fontsize=font_size)
-                            #x2.set_xticklabels(['0', '20', '40'], fontsize=font_size)
+                            ax1.set_xticks([int(np.amin(bins_tot_h)), int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2), int(np.amax(bins_tot_h))])
+                            ax1.set_xticklabels([str(int(np.amin(bins_tot_h))), str(int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2)), str(int(np.amax(bins_tot_h)))], fontsize=font_size)
+                            ax2.set_xticks([int(np.amin(bins_tot_h)), int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2), int(np.amax(bins_tot_h))])
+                            ax2.set_xticklabels([str(int(np.amin(bins_tot_h))), str(int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2)), str(int(np.amax(bins_tot_h)))], fontsize=font_size)
                             if show_prior:
+                                ax_1 = ax1.twinx()
                                 ax_1.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
                                 ax_1.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
                                 ax_1.set_yticklabels(['','',''], fontsize=font_size)
-                        elif alt_results[0] == 'kv':
-                            warnings.warn(f"BIC results cannot be plotted with hist_height_posterior option; use hist_height instead.", UserWarning)
+                            # Plot ground truths if we have them
+                            if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
+                                if self.dataset["parameters"]["type"] == 'kv':
+                                    ground_h_trim = np.trim_zeros(self.dataset["ground_truths"]["t_m"])
+                                    # Process these so we get holding times, not absolute step times
+                                    ground_dwells =[]
+                                    for jmps in range(len(ground_h_trim)):
+                                        if jmps == 0:
+                                            continue
+                                        else:
+                                            ground_dwells.append(ground_h_trim[jmps] - ground_h_trim[jmps - 1])
+                                    ax1.vlines(ground_dwells, 0 ,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1 ,color=gtcolor, zorder=10)
+                                    ax2.vlines(ground_dwells, 0 ,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1 ,color=gtcolor, zorder=10)
+                                    handle_array.append(cyan_patch)
+                                    num_cols += 1
+                                elif self.dataset["parameters"]["type"] == 'hmm':
+                                    ground_t_ihmm = []
+                                    time_prev = t_n[0]
+                                    for itm in range(1, len(self.dataset["ground_truths"]["u"])):
+                                        if self.dataset["ground_truths"]["u"][itm] != self.dataset["ground_truths"]["u"][itm-1]:
+                                            ground_t_ihmm.append(t_n[itm] - time_prev)
+                                            time_prev = t_n[itm]
+                                    ground_t_ihmm = np.unique(np.abs(np.asarray(ground_t_ihmm)))
+                                    ax1.vlines(ground_t_ihmm, 0 ,np.amax(n)+np.amax(n)*0.1 ,color=gtcolor, zorder=10)
+                                    ax2.vlines(ground_t_ihmm, 0 ,np.amax(n)+np.amax(n)*0.1 ,color=gtcolor, zorder=10)
+                                    handle_array.append(cyan_patch)
+                                    num_cols += 1
+                            handle_array.append(purple_patch)
+                            num_cols += 1
+                        elif alt_results[0] == 'ihmm':
+                            _, hist_dwells_ihmm = bnpa.generate_histogram_data_ihmm(self.alt_method_results_ihmm["samples"], t_n)
+                            # TODO: add option for bins=fixed_bins
+                            n_kv, bins_kv, patches_kv = ax2.hist(hist_dwells_ihmm, alpha=0.5, edgecolor=alt_color4, color=alt_color4, density=True, histtype='stepfilled')
+                            bins_tot_h = np.concatenate((bins, bins_kv))
+                            n_tot_h = np.concatenate((n, n_kv))
+                            # Configure axes
+                            ax1.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                            ax2.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                            ax1.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                            ax1.set_yticklabels(['0', f'{np.amax(n_tot_h)/2:.1f}', f'{np.amax(n_tot_h):.1f}'], fontsize=font_size)
+                            ax2.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                            ax2.set_yticklabels(['', '', ''], fontsize=font_size)
+                            ax1.set_xlim(int(np.amin(bins_tot_h)-2),int(np.amax(bins_tot_h)+2))
+                            ax2.set_xlim(int(np.amin(bins_tot_h)-2),int(np.amax(bins_tot_h)+2))
+                            ax1.set_xticks([int(np.amin(bins_tot_h)), int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2), int(np.amax(bins_tot_h))])
+                            ax1.set_xticklabels([str(int(np.amin(bins_tot_h))), str(int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2)), str(int(np.amax(bins_tot_h)))], fontsize=font_size)
+                            ax2.set_xticks([int(np.amin(bins_tot_h)), int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2), int(np.amax(bins_tot_h))])
+                            ax2.set_xticklabels([str(int(np.amin(bins_tot_h))), str(int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2)), str(int(np.amax(bins_tot_h)))], fontsize=font_size)
+                            if show_prior:
+                                ax_1 = ax1.twinx()
+                                ax_1.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                                ax_1.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                                ax_1.set_yticklabels(['','',''], fontsize=font_size)
+                            if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
+                                if self.dataset["parameters"]["type"] == 'kv':
+                                    ground_h_trim = np.trim_zeros(self.dataset["ground_truths"]["h_m"])
+                                    # Process these so we get holding times, not absolute step times
+                                    ground_dwells =[]
+                                    for jmps in range(len(ground_h_trim)):
+                                        if jmps == 0:
+                                            continue
+                                        else:
+                                            ground_dwells.append(ground_h_trim[jmps] - ground_h_trim[jmps - 1])
+                                    ax1.vlines(ground_dwells, 0 ,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1 ,color=gtcolor, zorder=10)
+                                    ax2.vlines(ground_dwells, 0 ,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1 ,color=gtcolor, zorder=10)
+                                    handle_array.append(cyan_patch)
+                                    num_cols += 1
+                                elif self.dataset["parameters"]["type"] == 'hmm':
+                                    ground_t_ihmm = []
+                                    time_prev = t_n[0]
+                                    for itm in range(1, len(self.dataset["ground_truths"]["u"])):
+                                        if self.dataset["ground_truths"]["u"][itm] != self.dataset["ground_truths"]["u"][itm-1]:
+                                            ground_t_ihmm.append(t_n[itm] - time_prev)
+                                            time_prev = t_n[itm]
+                                    ground_t_ihmm = np.unique(np.abs(np.asarray(ground_t_ihmm)))
+                                    ax1.vlines(ground_t_ihmm, 0 ,np.amax(n)+np.amax(n)*0.1 ,color=gtcolor, zorder=10)
+                                    ax2.vlines(ground_t_ihmm, 0 ,np.amax(n)+np.amax(n)*0.1 ,color=gtcolor, zorder=10)
+                                    handle_array.append(cyan_patch)
+                                    num_cols += 1
+                            handle_array.append(yellow_patch)
+                            num_cols += 1
+                    elif len(alt_results) == 2:
+                        _, hist_dwells_kv = bnpa.generate_histogram_data_kv(self.alt_method_results_kv["means"], self.alt_method_results_kv["jump_times"])
+                        _, hist_dwells_ihmm = bnpa.generate_histogram_data_ihmm(self.alt_method_results_ihmm["samples"], t_n)
+                        # TODO: add option for bins=fixed_bins
+                        n_kv, bins_kv, patches_kv = ax2.hist(hist_dwells_kv, alpha=0.5, edgecolor=alt_color1, color=alt_color1, density=True, histtype='stepfilled')
+                        n_kv2, bins_kv2, patches_kv2 = ax3.hist(hist_dwells_ihmm, alpha=0.5, edgecolor=alt_color4, color=alt_color4, density=True, histtype='stepfilled')
+                        bins_tot_h = np.concatenate((bins, bins_kv, bins_kv2))
+                        n_tot_h = np.concatenate((n, n_kv, n_kv2))
+                        # Configure axes
+                        ax1.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                        ax2.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                        ax3.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                        ax1.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                        ax1.set_yticklabels(['0', f'{np.amax(n_tot_h)/2:.1f}', f'{np.amax(n_tot_h):.1f}'], fontsize=font_size)
+                        ax2.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                        ax2.set_yticklabels(['', '', ''], fontsize=font_size)
+                        ax3.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                        ax3.set_yticklabels(['', '', ''], fontsize=font_size)
+                        ax1.set_xlim(int(np.amin(bins_tot_h)-2),int(np.amax(bins_tot_h)+2))
+                        ax2.set_xlim(int(np.amin(bins_tot_h)-2),int(np.amax(bins_tot_h)+2))
+                        ax3.set_xlim(int(np.amin(bins_tot_h)-2),int(np.amax(bins_tot_h)+2))
+                        ax1.set_xticks([int(np.amin(bins_tot_h)), int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2), int(np.amax(bins_tot_h))])
+                        ax1.set_xticklabels([str(int(np.amin(bins_tot_h))), str(int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2)), str(int(np.amax(bins_tot_h)))], fontsize=font_size)
+                        ax2.set_xticks([int(np.amin(bins_tot_h)), int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2), int(np.amax(bins_tot_h))])
+                        ax2.set_xticklabels([str(int(np.amin(bins_tot_h))), str(int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2)), str(int(np.amax(bins_tot_h)))], fontsize=font_size)
+                        ax3.set_xticks([int(np.amin(bins_tot_h)), int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2), int(np.amax(bins_tot_h))])
+                        ax3.set_xticklabels([str(int(np.amin(bins_tot_h))), str(int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2)), str(int(np.amax(bins_tot_h)))], fontsize=font_size)
+                        if show_prior:
+                            ax_1 = ax1.twinx()
+                            ax_1.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                            ax_1.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                            ax_1.set_yticklabels(['','',''], fontsize=font_size)
+                        # Plot ground truths if we have them
+                        if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
+                            if self.dataset["parameters"]["type"] == 'kv':
+                                ground_h_trim = np.trim_zeros(self.dataset["ground_truths"]["h_m"])
+                                # Process these so we get holding times, not absolute step times
+                                ground_dwells =[]
+                                for jmps in range(len(ground_h_trim)):
+                                    if jmps == 0:
+                                        continue
+                                    else:
+                                        ground_dwells.append(ground_h_trim[jmps] - ground_h_trim[jmps - 1])
+                                ax1.vlines(ground_dwells, 0 ,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1 ,color=gtcolor, zorder=10)
+                                ax2.vlines(ground_dwells, 0 ,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1 ,color=gtcolor, zorder=10)
+                                ax3.vlines(ground_dwells, 0 ,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1 ,color=gtcolor, zorder=10)
+                                handle_array.append(cyan_patch)
+                                num_cols += 1
+                            elif self.dataset["parameters"]["type"] == 'hmm':
+                                ground_t_ihmm = []
+                                time_prev = t_n[0]
+                                for itm in range(1, len(self.dataset["ground_truths"]["u"])):
+                                    if self.dataset["ground_truths"]["u"][itm] != self.dataset["ground_truths"]["u"][itm-1]:
+                                        ground_t_ihmm.append(t_n[itm] - time_prev)
+                                        time_prev = t_n[itm]
+                                ground_t_ihmm = np.unique(np.abs(np.asarray(ground_t_ihmm)))
+                                ax1.vlines(ground_t_ihmm, 0 ,np.amax(n)+np.amax(n)*0.1 ,color=gtcolor, zorder=10)
+                                ax2.vlines(ground_t_ihmm, 0 ,np.amax(n)+np.amax(n)*0.1 ,color=gtcolor, zorder=10)
+                                ax3.vlines(ground_t_ihmm, 0 ,np.amax(n)+np.amax(n)*0.1 ,color=gtcolor, zorder=10)
+                                handle_array.append(cyan_patch)
+                                num_cols += 1
+                        handle_array.append(purple_patch)
+                        handle_array.append(yellow_patch)
+                        num_cols += 2
                 else:
                     ax1.set_ylim(0,np.amax(n)+np.amax(n)*0.1)
                     ax1.set_yticks([0, np.amax(n)/2, np.amax(n)])
                     ax1.set_yticklabels(['0', f'{np.amax(n)/2:.1f}', f'{np.amax(n):.1f}'], fontsize=font_size)
                     ax1.set_xlim(int(np.amin(bins)-2),int(np.amax(bins)+2))
-                    # TODO: make these options not hard-coded
-                    # ax1.set_xticks([0, 20, 40])
-                    # ax1.set_xticklabels(['0', '20', '40'], fontsize=font_size)
+                    ax1.set_xticks([int(np.amin(bins)), int((np.amin(bins) + np.amax(bins)) / 2), int(np.amax(bins))])
+                    ax1.set_xticklabels([str(int(np.amin(bins))), str(int((np.amin(bins) + np.amax(bins)) / 2)), str(int(np.amax(bins)))], fontsize=font_size)
                     if show_prior:
+                        ax_1 = ax1.twinx()
                         ax_1.set_ylim(0,np.amax(n)+np.amax(n)*0.1)
                         ax_1.set_yticks([0, np.amax(n)/2, np.amax(n)])
                         ax_1.set_yticklabels(['','',''], fontsize=font_size)
+                    # Plot ground truths if we have them
+                    if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
+                        if self.dataset["parameters"]["type"] == 'kv':
+                            ground_h_trim = np.trim_zeros(self.dataset["ground_truths"]["h_m"])
+                            # Process these so we get holding times, not absolute step times
+                            ground_dwells =[]
+                            for jmps in range(len(ground_h_trim)):
+                                if jmps == 0:
+                                    continue
+                                else:
+                                    ground_dwells.append(ground_h_trim[jmps] - ground_h_trim[jmps - 1])
+                            ax1.vlines(ground_dwells, 0 ,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1 ,color=gtcolor, zorder=10)
+                        elif self.dataset["parameters"]["type"] == 'hmm':
+                            ground_t_ihmm = []
+                            time_prev = t_n[0]
+                            for itm in range(1, len(self.dataset["ground_truths"]["u"])):
+                                if self.dataset["ground_truths"]["u"][itm] != self.dataset["ground_truths"]["u"][itm-1]:
+                                    ground_t_ihmm.append(t_n[itm] - time_prev)
+                                    time_prev = t_n[itm]
+                            ground_t_ihmm = np.unique(np.abs(np.asarray(ground_t_ihmm)))
+                            ax1.vlines(ground_t_ihmm, 0 ,np.amax(n)+np.amax(n)*0.1 ,color=gtcolor, zorder=10)
+                            handle_array.append(cyan_patch)
+                            num_cols += 1
+
+                # Plot prior if we chose this option
+                if show_prior:
+                    prior_x = np.linspace(30, t_n[-1], 200)
+                    prior_t = (1/(len(t_n)))*np.ones(200)
+                    ax_1.plot(prior_x, prior_t, label='Prior', color=alt_color2, zorder=5)
+                    handle_array.append(magenta_patch)
+                    num_cols += 1
                 
+                # Plot CI if we chose this option
+                # TODO: add options to show 50% CI or have user-defined CI
+                if show_ci:
+                    y_limits_ci = [0, 100]
+                    mean, under95, under50, median, upper50, upper95 = bnpa.get_credible_intervals(hist_dwells)
+                    ax1.fill_betweenx(y=y_limits_ci, x1=upper95, x2=under95, color=alt_color3, alpha=0.2, zorder=-10)
+                    handle_array.append(red_patch)
+                    num_cols += 1
+
+                # Generate legend
+                ax0.legend(bbox_to_anchor=(0., 1.08, 1., .102), handles=handle_array,
+                                loc='lower center', ncol=num_cols, mode="none", borderaxespad=0., borderpad=0.8, edgecolor=(1.0, 1.0, 1.0, 0.0), prop=fnt_mgr)
+                            
                 # Show plot, then save figure
                 plt.show()
                 # TODO: add user option to generate figure type other than pdf
-                output_filename = fig_savename + '_hist_height_posterior' + '.pdf'
-                fig.savefig(output_filename, format='pdf')"""
+                output_filename = fig_savename + '_' + plot + '.pdf'
+                fig.savefig(output_filename, format='pdf')
 
+            elif (plot == 'hist_emission'):
+                # General figure setup
+                fig = plt.figure()
+
+                if plot_alt_results and len(alt_results) == 1:
+                    gs1 = GridSpec(1, 1, bottom=0.8)  # For legend
+                    ax0 = fig.add_subplot(gs1[0])
+                    ax0.axis('off')
+                    gs2 = GridSpec(1, 2, top=0.85, wspace=0.07, hspace=0.05)  # For actual plot
+                    ax1 = fig.add_subplot(gs2[0])
+                    ax2 = fig.add_subplot(gs2[1])
+                elif plot_alt_results and len(alt_results) == 2:
+                    gs1 = GridSpec(1, 1, bottom=0.8)  # For legend
+                    ax0 = fig.add_subplot(gs1[0])
+                    ax0.axis('off')
+                    gs2 = GridSpec(1, 3, top=0.85, wspace=0.07, hspace=0.05)  # For actual plot
+                    ax1 = fig.add_subplot(gs2[0])
+                    ax2 = fig.add_subplot(gs2[1])
+                    ax3 = fig.add_subplot(gs2[2])
+                else:
+                    gs1 = GridSpec(1, 1, bottom=0.8)  # For legend
+                    ax0 = fig.add_subplot(gs1[0])
+                    ax0.axis('off')
+                    gs2 = GridSpec(1, 1, top=0.85, wspace=0.07, hspace=0.05)  # For actual plot
+                    ax1 = fig.add_subplot(gs2[0])
+
+                fig.supxlabel(x_label, fontsize=font_size)
+                fig.supylabel(y_label, x=0.05, fontsize=font_size)
+
+                # Legend setup
+                orange_patch = mpatches.Patch(color=learncolor, alpha=0.5, label='BNP-Step')
+                purple_patch = mpatches.Patch(color=alt_color1, alpha=0.5, label='BIC')
+                yellow_patch = mpatches.Patch(color=alt_color4, alpha=0.5, label='iHMM')
+                cyan_patch = mpatches.Patch(color=gtcolor, label='Ground truths')
+                magenta_patch = mpatches.Patch(color=alt_color2, label='Prior')
+
+                # Prepare fixed bins - NYI, should be an option users choose
+                #fixed_bins = np.arange(-10,20,0.05)
+
+                # Strip out samples with the MAP number of steps, then generate the histogrammable data set
+                b_m_top, h_m_top, t_m_top, f_back_top, eta_top = bnpa.find_top_samples_by_jumps(b_clean, h_clean, t_clean, f_clean, eta_clean, post_clean)
+                _, sample_data = bnpa.generate_histogram_data_emission(b_m_top, h_m_top, t_m_top, f_back_top, self.B_max)
+                
+                # Ravel the dataset for histogramming
+                hist_data = np.ravel(sample_data)
+
+                # Plot histogram
+                # TODO: add bins=fixed_bins option
+                n, bins, patches = ax1.hist(hist_data, alpha=0.5, edgecolor=learncolor, density=True, color=learncolor, histtype='stepfilled')
+                
+                # Legend parameters
+                handle_array = [orange_patch]
+                num_cols = 1
+
+                # Configure axes and plot alternative methods' results if we have them
+                if plot_alt_results:
+                    if len(alt_results) == 1:
+                        if alt_results[0] == 'ihmm':
+                            # TODO: add option for bins=fixed_bins
+                            n_kv, bins_kv, patches_kv = ax2.hist(self.alt_method_results_ihmm["mode_means"], alpha=0.5, edgecolor=alt_color4, color=alt_color4, density=True, histtype='stepfilled')
+                            bins_tot_h = np.concatenate((bins, bins_kv))
+                            n_tot_h = np.concatenate((n, n_kv))
+                            # Configure axes
+                            ax1.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                            ax2.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                            ax1.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                            ax1.set_yticklabels(['0', f'{np.amax(n_tot_h)/2:.1f}', f'{np.amax(n_tot_h):.1f}'], fontsize=font_size)
+                            ax2.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                            ax2.set_yticklabels(['', '', ''], fontsize=font_size)
+                            ax1.set_xlim(int(np.amin(bins_tot_h)-2),int(np.amax(bins_tot_h)+2))
+                            ax2.set_xlim(int(np.amin(bins_tot_h)-2),int(np.amax(bins_tot_h)+2))
+                            ax1.set_xticks([int(np.amin(bins_tot_h)), int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2), int(np.amax(bins_tot_h))])
+                            ax1.set_xticklabels([str(int(np.amin(bins_tot_h))), str(int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2)), str(int(np.amax(bins_tot_h)))], fontsize=font_size)
+                            ax2.set_xticks([int(np.amin(bins_tot_h)), int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2), int(np.amax(bins_tot_h))])
+                            ax2.set_xticklabels([str(int(np.amin(bins_tot_h))), str(int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2)), str(int(np.amax(bins_tot_h)))], fontsize=font_size)
+                            if show_prior:
+                                ax_1 = ax1.twinx()
+                                ax_1.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                                ax_1.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                                ax_1.set_yticklabels(['','',''], fontsize=font_size)
+                            # Plot ground truths if we have them
+                            if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
+                                if self.dataset["parameters"]["type"] == 'hmm':
+                                    gt_emissions_ihmm = np.unique(self.dataset["ground_truths"]["u"])
+                                    ax1.vlines(gt_emissions_ihmm, 0, 100, color=gtcolor, zorder=10)
+                                    ax2.vlines(gt_emissions_ihmm, 0, 100, color=gtcolor, zorder=10)
+                                    handle_array.append(cyan_patch)
+                                    num_cols += 1
+                                elif self.dataset["parameters"]["type"] == 'kv':
+                                    _, ground_data = bnpa.generate_gt_step_plot_data(self.dataset["ground_truths"]["b_m"], self.dataset["ground_truths"]["h_m"], self.dataset["ground_truths"]["t_m"], self.dataset["parameters"]["f_back"], t_n, self.B_max)
+                                    ground_data = ground_data - self.dataset["parameters"]["f_back"]
+                                    ax1.vlines(ground_data, 0, 100, color=gtcolor, zorder=10)
+                                    ax2.vlines(ground_data, 0, 100, color=gtcolor, zorder=10)
+                                    handle_array.append(cyan_patch)
+                                    num_cols += 1
+                            handle_array.append(yellow_patch)
+                            num_cols += 1
+                        elif alt_results[0] == 'kv':
+                            # TODO: add option for bins=fixed_bins
+                            _, kv_emissions = bnpa.generate_kv_step_plot_data(self.alt_method_results_kv["jump_times"], 
+                                                                                    self.alt_method_results_kv["means"], 
+                                                                                    self.alt_method_results_kv["background"], 
+                                                                                    t_n)
+                            n_kv, bins_kv, patches_kv = ax2.hist(kv_emissions, alpha=0.5, edgecolor=alt_color1, color=alt_color1, density=True, histtype='stepfilled')
+                            bins_tot_h = np.concatenate((bins, bins_kv))
+                            n_tot_h = np.concatenate((n, n_kv))
+                            # Configure axes
+                            ax1.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                            ax2.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                            ax1.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                            ax1.set_yticklabels(['0', f'{np.amax(n_tot_h)/2:.1f}', f'{np.amax(n_tot_h):.1f}'], fontsize=font_size)
+                            ax2.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                            ax2.set_yticklabels(['', '', ''], fontsize=font_size)
+                            ax1.set_xlim(int(np.amin(bins_tot_h)-2),int(np.amax(bins_tot_h)+2))
+                            ax2.set_xlim(int(np.amin(bins_tot_h)-2),int(np.amax(bins_tot_h)+2))
+                            ax1.set_xticks([int(np.amin(bins_tot_h)), int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2), int(np.amax(bins_tot_h))])
+                            ax1.set_xticklabels([str(int(np.amin(bins_tot_h))), str(int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2)), str(int(np.amax(bins_tot_h)))], fontsize=font_size)
+                            ax2.set_xticks([int(np.amin(bins_tot_h)), int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2), int(np.amax(bins_tot_h))])
+                            ax2.set_xticklabels([str(int(np.amin(bins_tot_h))), str(int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2)), str(int(np.amax(bins_tot_h)))], fontsize=font_size)
+                            if show_prior:
+                                ax_1 = ax1.twinx()
+                                ax_1.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                                ax_1.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                                ax_1.set_yticklabels(['','',''], fontsize=font_size)
+                            # Plot ground truths if we have them
+                            if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
+                                if self.dataset["parameters"]["type"] == 'hmm':
+                                    gt_emissions_ihmm = np.unique(self.dataset["ground_truths"]["u"])
+                                    ax1.vlines(gt_emissions_ihmm, 0, 100, color=gtcolor, zorder=10)
+                                    ax2.vlines(gt_emissions_ihmm, 0, 100, color=gtcolor, zorder=10)
+                                    handle_array.append(cyan_patch)
+                                    num_cols += 1
+                                elif self.dataset["parameters"]["type"] == 'kv':
+                                    _, ground_data = bnpa.generate_gt_step_plot_data(self.dataset["ground_truths"]["b_m"], self.dataset["ground_truths"]["h_m"], self.dataset["ground_truths"]["t_m"], self.dataset["parameters"]["f_back"], t_n, self.B_max)
+                                    ground_data = ground_data - self.dataset["parameters"]["f_back"]
+                                    ax1.vlines(ground_data, 0, 100, color=gtcolor, zorder=10)
+                                    ax2.vlines(ground_data, 0, 100, color=gtcolor, zorder=10)
+                                    handle_array.append(cyan_patch)
+                                    num_cols += 1
+                            handle_array.append(purple_patch)
+                            num_cols += 1
+                    elif len(alt_results) == 2:
+                        # TODO: add option for bins=fixed_bins
+                        _, kv_emissions = bnpa.generate_kv_step_plot_data(self.alt_method_results_kv["jump_times"], 
+                                                                                    self.alt_method_results_kv["means"], 
+                                                                                    self.alt_method_results_kv["background"], 
+                                                                                    t_n)
+                        n_kv, bins_kv, patches_kv = ax3.hist(self.alt_method_results_ihmm["mode_means"], alpha=0.5, edgecolor=alt_color4, color=alt_color4, density=True, histtype='stepfilled')
+                        n_kv2, bins_kv2, patches_kv2 = ax2.hist(kv_emissions, alpha=0.5, edgecolor=alt_color1, color=alt_color1, density=True, histtype='stepfilled')
+                        bins_tot_h = np.concatenate((bins, bins_kv, bins_kv2))
+                        n_tot_h = np.concatenate((n, n_kv, n_kv2))
+                        # Configure axes
+                        ax1.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                        ax2.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                        ax3.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                        ax1.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                        ax1.set_yticklabels(['0', f'{np.amax(n_tot_h)/2:.1f}', f'{np.amax(n_tot_h):.1f}'], fontsize=font_size)
+                        ax2.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                        ax2.set_yticklabels(['', '', ''], fontsize=font_size)
+                        ax3.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                        ax3.set_yticklabels(['', '', ''], fontsize=font_size)
+                        ax1.set_xlim(int(np.amin(bins_tot_h)-2),int(np.amax(bins_tot_h)+2))
+                        ax2.set_xlim(int(np.amin(bins_tot_h)-2),int(np.amax(bins_tot_h)+2))
+                        ax3.set_xlim(int(np.amin(bins_tot_h)-2),int(np.amax(bins_tot_h)+2))
+                        ax1.set_xticks([int(np.amin(bins_tot_h)), int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2), int(np.amax(bins_tot_h))])
+                        ax1.set_xticklabels([str(int(np.amin(bins_tot_h))), str(int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2)), str(int(np.amax(bins_tot_h)))], fontsize=font_size)
+                        ax2.set_xticks([int(np.amin(bins_tot_h)), int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2), int(np.amax(bins_tot_h))])
+                        ax2.set_xticklabels([str(int(np.amin(bins_tot_h))), str(int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2)), str(int(np.amax(bins_tot_h)))], fontsize=font_size)
+                        ax3.set_xticks([int(np.amin(bins_tot_h)), int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2), int(np.amax(bins_tot_h))])
+                        ax3.set_xticklabels([str(int(np.amin(bins_tot_h))), str(int((np.amin(bins_tot_h) + np.amax(bins_tot_h)) / 2)), str(int(np.amax(bins_tot_h)))], fontsize=font_size)
+                        if show_prior:
+                            ax_1 = ax1.twinx()
+                            ax_1.set_ylim(0,np.amax(n_tot_h)+np.amax(n_tot_h)*0.1)
+                            ax_1.set_yticks([0, np.amax(n_tot_h)/2, np.amax(n_tot_h)])
+                            ax_1.set_yticklabels(['','',''], fontsize=font_size)
+                        # Plot ground truths if we have them
+                        if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
+                            if self.dataset["parameters"]["type"] == 'hmm':
+                                gt_emissions_ihmm = np.unique(self.dataset["ground_truths"]["u"])
+                                ax1.vlines(gt_emissions_ihmm, 0, 100, color=gtcolor, zorder=10)
+                                ax2.vlines(gt_emissions_ihmm, 0, 100, color=gtcolor, zorder=10)
+                                ax3.vlines(gt_emissions_ihmm, 0, 100, color=gtcolor, zorder=10)
+                                handle_array.append(cyan_patch)
+                                num_cols += 1
+                            elif self.dataset["parameters"]["type"] == 'kv':
+                                _, ground_data = bnpa.generate_gt_step_plot_data(self.dataset["ground_truths"]["b_m"], self.dataset["ground_truths"]["h_m"], self.dataset["ground_truths"]["t_m"], self.dataset["parameters"]["f_back"], t_n, self.B_max)
+                                ground_data = ground_data - self.dataset["parameters"]["f_back"]
+                                ax1.vlines(ground_data, 0, 100, color=gtcolor, zorder=10)
+                                ax2.vlines(ground_data, 0, 100, color=gtcolor, zorder=10)
+                                ax3.vlines(ground_data, 0, 100, color=gtcolor, zorder=10)
+                                handle_array.append(cyan_patch)
+                                num_cols += 1
+                        handle_array.append(purple_patch)
+                        handle_array.append(yellow_patch)
+                        num_cols += 2
+                else:
+                    ax1.set_ylim(0,np.amax(n)+np.amax(n)*0.1)
+                    ax1.set_yticks([0, np.amax(n)/2, np.amax(n)])
+                    ax1.set_yticklabels(['0', f'{np.amax(n)/2:.1f}', f'{np.amax(n):.1f}'], fontsize=font_size)
+                    ax1.set_xlim(int(np.amin(bins)-2),int(np.amax(bins)+2))
+                    ax1.set_xticks([int(np.amin(bins)), int((np.amin(bins) + np.amax(bins)) / 2), int(np.amax(bins))])
+                    ax1.set_xticklabels([str(int(np.amin(bins))), str(int((np.amin(bins) + np.amax(bins)) / 2)), str(int(np.amax(bins)))], fontsize=font_size)
+                    if show_prior:
+                        ax_1 = ax1.twinx()
+                        ax_1.set_ylim(0,np.amax(n)+np.amax(n)*0.1)
+                        ax_1.set_yticks([0, np.amax(n)/2, np.amax(n)])
+                        ax_1.set_yticklabels(['','',''], fontsize=font_size)
+                    # Plot ground truths if we have them
+                    if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
+                        if self.dataset["parameters"]["type"] == 'hmm':
+                            gt_emissions_ihmm = np.unique(self.dataset["ground_truths"]["u"])
+                            ax1.vlines(gt_emissions_ihmm, 0, 100, color=gtcolor, zorder=10)
+                            handle_array.append(cyan_patch)
+                            num_cols += 1
+                        elif self.dataset["parameters"]["type"] == 'kv':
+                            _, ground_data = bnpa.generate_gt_step_plot_data(self.dataset["ground_truths"]["b_m"], self.dataset["ground_truths"]["h_m"], self.dataset["ground_truths"]["t_m"], self.dataset["parameters"]["f_back"], t_n, self.B_max)
+                            ground_data = ground_data - self.dataset["parameters"]["f_back"]
+                            ax1.vlines(ground_data, 0, 100, color=gtcolor, zorder=10)
+                            handle_array.append(cyan_patch)
+                            num_cols += 1
+                
+                # Plot prior if we chose this option
+                if show_prior:
+                    prior_x = np.linspace(self.h_ref-2*(1/np.sqrt(self.chi)), self.h_ref+2*(1/np.sqrt(self.chi)), 200)
+                    prior_h = np.sqrt(self.chi/(2*np.pi))*np.exp(-(self.chi/2)*(prior_x-self.h_ref)**2)
+                    ax_1.plot(prior_x, prior_h, label='Prior', color=alt_color2, zorder=5, linewidth=3.0)
+                    handle_array.append(magenta_patch)
+                    num_cols += 1
+
+                # Add legend
+                ax0.legend(bbox_to_anchor=(0., 1.08, 1., .102), handles=handle_array,
+                            loc='lower center', ncol=num_cols, mode="none", borderaxespad=0., borderpad=0.8, edgecolor=(1.0, 1.0, 1.0, 0.0), prop=fnt_mgr)
+            
+                # Show plot, then save figure
+                plt.show()
+                # TODO: add user option to generate figure type other than pdf
+                output_filename = fig_savename + '_' + plot + '.pdf'
+                fig.savefig(output_filename, format='pdf')
+
+            elif (plot == 'hist_height_separated'):
+                warnings.warn(f"Separated emission level histograms NYI", UserWarning)
+            
+            elif (plot == 'hist_dwell_separated'):
+                warnings.warn(f"Separated emission level histograms NYI", UserWarning)
+            
             elif (plot == 'hist_emission_separated'):
                 warnings.warn(f"Separated emission level histograms NYI", UserWarning)
 
