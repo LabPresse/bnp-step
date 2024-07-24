@@ -845,11 +845,8 @@ class BNPStep:
                 T = np.linspace(t_n[0], t_n[-1], len(self.dataset["data"]))
                 
                 # Find the MAP estimate for our step plot
-                b_map, h_map, t_map, f_map, eta_map = bnpa.find_map(b_clean, h_clean, t_clean, f_clean, eta_clean, post_clean)
-
-                # Generate step plot data from our results
-                sorted_times, sorted_data = bnpa.generate_step_plot_data(b_map, h_map, t_map, f_map, self.B_max, t_n)
-
+                map_index = np.argmax(post_clean)
+                step_data                 = bnpa.get_step_plot_data(b_clean , h_clean , t_clean , f_clean, t_n , self.B_max , t_n.size , map_index)
                 # Plot synthetic data
                 ax1.scatter(T, self.dataset["data"], alpha=0.7, color=datacolor, facecolors='none', marker='.')
 
@@ -865,7 +862,7 @@ class BNPStep:
                         ax1.stairs(ground_data, gt_times, baseline=None, color=gtcolor, linewidth=3.0, zorder=5.0)
 
                 # Plot discovered steps
-                ax1.stairs(sorted_data, sorted_times, baseline=None, color=learncolor, linewidth=3.0, zorder=10)
+                ax1.stairs(step_data, np.insert(T,0,T[0]), baseline=None, color=learncolor, linewidth=3.0, zorder=10)
 
                 # Add subplot titles
                 # ax1.set_title('SNR = 2.0', font=fpath, fontsize=fntsize)
@@ -874,8 +871,8 @@ class BNPStep:
                 ax1.set_xticks([t_n[0], t_n[int(len(self.dataset["data"])/2)], t_n[-1]])
                 ax1.set_xticklabels([str(int(t_n[0])), str(int((t_n[int(len(self.dataset["data"])/2)]))), str(int(t_n[-1]))], fontsize=font_size)
 
-                ax1.set_yticks([int(np.amin(sorted_data)), int((np.amax(sorted_data)+np.amin(sorted_data))/2), int(np.amax(sorted_data))])
-                ax1.set_yticklabels([str(int(np.amin(sorted_data))), str(int((np.amax(sorted_data)+np.amin(sorted_data))/2)), str(int(np.amax(sorted_data)))], fontsize=font_size)
+                # ax1.set_yticks([int(np.amin(sorted_data)), int((np.amax(sorted_data)+np.amin(sorted_data))/2), int(np.amax(sorted_data))])
+                # ax1.set_yticklabels([str(int(np.amin(sorted_data))), str(int((np.amax(sorted_data)+np.amin(sorted_data))/2)), str(int(np.amax(sorted_data)))], fontsize=font_size)
 
                 # If we also have alternative results, plot those and configure the axes.
                 if plot_alt_results:
@@ -1004,7 +1001,7 @@ class BNPStep:
                 # TODO: add user option to generate figure type other than pdf
                 output_filename = fig_savename + '_' + plot + '.pdf'
                 fig.savefig(output_filename, format='pdf')
-
+                
             elif (plot == 'hist_step_height'):
                 # General figure setup
                 fig = plt.figure()
