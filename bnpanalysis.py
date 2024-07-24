@@ -372,6 +372,40 @@ def find_top_samples_by_jumps(b_vec, h_vec, t_vec, f_vec, eta_vec, posteriors):
 
     return good_b_m, good_h_m, good_t_m, good_f_s, good_eta
 
+def get_step_plot_data(b_m_vec, h_m_vec, t_m_vec, f_vec, data_times, weak_limit, num_data, map_index):
+    """
+    Calculates the log likelihood given a dataset and a set of associated samples from BNP-Step
+
+    Arguments:
+    weak_limit -- Maximum number of possible steps
+    num_data -- Number of observations
+    data_points -- Observations
+    data_times -- Time points corresponding to each observation
+    b_m_vec -- Previous b_m samples
+    h_m_vec -- Previous h_m samples
+    t_m_vec -- Previous t_m samples
+    f_vec -- Previous F_bg samples
+    eta_vec -- Previous eta samples
+
+    Returns:
+    new_log_likelihood -- the log likelihood for the provided samples and observations
+    """
+    # Calculate matrices required for vectorized sum calculations
+    times_matrix = np.broadcast_to(t_m_vec[map_index], (num_data, weak_limit))
+    obs_time_matrix = np.broadcast_to(data_times, (weak_limit, num_data)).T
+    height_matrix = np.broadcast_to(h_m_vec[map_index], (num_data, weak_limit))
+    load_matrix = np.broadcast_to(b_m_vec[map_index], (num_data, weak_limit))
+
+    # Calculate product of b_m and h_m term-wise
+    bh_matrix = np.multiply(load_matrix, height_matrix)
+    # Calculate Heaviside terms times loads and heights
+    bht_matrix = np.multiply(bh_matrix,
+                             np.heaviside((-1 * (obs_time_matrix - times_matrix)),
+                                          np.ones((num_data, weak_limit))))
+    # Calculate sum term for the exponent
+    bht_sum = f_vec[map_index] + np.sum(bht_matrix, axis=1)
+    return bht_sum
+
 
 # Functions for generating graph-able data
 def generate_step_plot_data(b_vec, h_vec, t_vec, f_vec, weak_limit, t_n):
