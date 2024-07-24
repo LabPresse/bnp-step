@@ -53,8 +53,8 @@ def load_data_txt(filename: str,
                 line = f.readline().strip()
         
         # Convert data and times arrays to numpy arrays
-        data = np.asarray(data).astype(np.float)
-        times = np.asarray(times).astype(np.float)
+        data = np.asarray(data).astype(float)
+        times = np.asarray(times).astype(float)
 
         # Build dictionary for output
         dataset["data"] = data
@@ -73,7 +73,7 @@ def load_data_txt(filename: str,
         data = np.asarray(data)
 
         # Build dictionary for output
-        dataset["data"] = data.astype(np.float)
+        dataset["data"] = data.astype(float)
         dataset["times"] = None
     
     dataset["ground_truths"] = None
@@ -250,8 +250,8 @@ def load_data_expt(filename: str,
             line = f.readline().strip()
 
     # Convert data and times arrays to numpy arrays
-    data = np.asarray(data).astype(np.float)
-    times = np.asarray(times).astype(np.float)
+    data = np.asarray(data).astype(float)
+    times = np.asarray(times).astype(float)
 
     # Build dictionary for output
     dataset = {}
@@ -354,10 +354,10 @@ def load_data_kv(filename: str,
 
     # Sanitize and pack ground truth trajectory data
     ground_b = np.asarray(ground_b).astype(np.int)
-    ground_h = np.asarray(ground_h).astype(np.float)
-    ground_t = np.asarray(ground_t).astype(np.float)
-    data = np.asarray(data).astype(np.float)
-    times = np.asarray(times).astype(np.float)
+    ground_h = np.asarray(ground_h).astype(float)
+    ground_t = np.asarray(ground_t).astype(float)
+    data = np.asarray(data).astype(float)
+    times = np.asarray(times).astype(float)
 
     ground_b = ground_b[:B_max_file+1]
     ground_h = ground_h[:B_max_file+1]
