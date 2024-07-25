@@ -375,8 +375,8 @@ class BNPStep:
         
     def results_to_file(self,
                         outfile: str = 'output',
-                        path = None
-                        ):
+                        path = None,
+                        simple = False):
         """
         Outputs the results currently stored in the sample attributes (B_M, H_M, T_M, F_S, ETA) to a .pkl file.
 
@@ -386,25 +386,48 @@ class BNPStep:
                 directory as bnpstep.py. Default: None
 
         """
+
         if not isinstance(outfile, str):
             raise TypeError(f"outfile should be of type str instead of {type(outfile)}")
         # TODO: validate path
-        full_name = outfile + '.pkl'
+        if simple:
+            full_name = outfile + '.csv'
+        else:
+            full_name = outfile + '.pkl'
+
         if path is not None:
             full_path = os.path.join(path, full_name)
         else:
             full_path = full_name
         
-        if self.B_M is None or self.H_M is None or self.T_M is None or self.F_S is None or self.ETA is None:
-            raise ValueError("One or more sample attributes is None, cannot save output file.")
-        if len(self.B_M) == 0 or len(self.H_M) == 0 or len(self.T_M) == 0 or len(self.F_S) == 0 or len(self.ETA) == 0:
-            raise ValueError("One or more sample attribute arrays is empty, cannot save output file.")
-        
-        # Output data to file
-        results = {"b_m": self.B_M, "h_m": self.H_M, "t_m": self.T_M, "F_bg": self.F_S, "eta": self.ETA, "posterior": self.post}
-        
-        with open(full_path, 'wb') as fp:
-            pickle.dump(results, fp)
+        if simple:
+            if self.dataset["times"] is not None:
+                t_n = self.dataset["times"]
+            else:
+                t_n = np.arange(len(self.dataset["data"]))
+            
+            burn_in_samples = int(0.25 * len(self.post))
+            b_clean, h_clean, t_clean, f_clean, eta_clean, post_clean = bnpa.remove_burn_in(self.B_M, self.H_M, self.T_M, self.F_S, self.ETA, self.post, burn_in_samples)
+
+            map_index = np.argmax(post_clean)
+            step_data                 = bnpa.get_step_plot_data(b_clean , h_clean , t_clean , f_clean, t_n , self.B_max , t_n.size , map_index)
+            results = np.concatenate((self.dataset['times'],step_data)).reshape((-1, 2), order='F')
+            with open(full_path, 'w') as fp:
+                writerr = csv.writer(fp)
+                writerr.writerow(['observation_times','step_heights'])
+                writerr.writerows(results)
+        else:
+
+            if self.B_M is None or self.H_M is None or self.T_M is None or self.F_S is None or self.ETA is None:
+                raise ValueError("One or more sample attributes is None, cannot save output file.")
+            if len(self.B_M) == 0 or len(self.H_M) == 0 or len(self.T_M) == 0 or len(self.F_S) == 0 or len(self.ETA) == 0:
+                raise ValueError("One or more sample attribute arrays is empty, cannot save output file.")
+            
+            # Output data to file
+            results = {"b_m": self.B_M, "h_m": self.H_M, "t_m": self.T_M, "F_bg": self.F_S, "eta": self.ETA, "posterior": self.post}
+            
+            with open(full_path, 'wb') as fp:
+                pickle.dump(results, fp)
     
 
     def results_from_file(self,
