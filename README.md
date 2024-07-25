@@ -17,7 +17,7 @@ Alternatively, you can install the required packages on your own using pip. Howe
 Once your environment has been set up, clone the bnp-step repository by running the following from the command line in the directory of your choice:
 
 ```
-git clone https://github.com/arojewski/bnp-step.git
+git clone https://github.com/LabPresse/bnp-step.git
 ```
 
 This will create a folder in the current directory containing the BNP-Step code and two Jupyter notebooks. That's it! You're now ready to use BNP-Step.
