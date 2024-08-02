@@ -16,6 +16,7 @@ import bnpsampler as sampler
 import bnpanalysis as bnpa
 import bic_tools as bic
 import pickle
+import csv
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
