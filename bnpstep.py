@@ -412,7 +412,7 @@ class BNPStep:
 
             map_index = np.argmax(post_clean)
             step_data                 = bnpa.get_step_plot_data(b_clean , h_clean , t_clean , f_clean, t_n , self.B_max , t_n.size , map_index)
-            results = np.concatenate((self.dataset['times'],step_data)).reshape((-1, 2), order='F')
+            results = np.concatenate((t_n,step_data)).reshape((-1, 2), order='F')
             with open(full_path, 'w') as fp:
                 writerr = csv.writer(fp)
                 writerr.writerow(['observation_times','step_heights'])
