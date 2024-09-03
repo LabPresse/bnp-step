@@ -32,10 +32,10 @@ class BNPStep:
                  h_ref: float = 0.0, 
                  psi: float = 0.00028, 
                  F_ref: float = 0.0, 
-                 phi: float = 1.0, 
+                 phi: float = 0.001, 
                  eta_ref: float = 10.0, 
                  gamma: float = 1.0, 
-                 B_max: int = 50, 
+                 B_max: int = 70, 
                  load_initialization: str = 'prior',
                  use_annealing: bool = False,
                  init_temperature: int = 2250, 
@@ -330,6 +330,39 @@ class BNPStep:
                                                 self.phi, self.eta_ref, self.psi, self.F_ref)
         self.post = np.asarray([poster])
 
+        # # Set temperature for simulated annealing if we are using it
+        # temperature = 1
+        # # Gibbs sampler, random sweep
+        # for i in np.random.permutation(range(4)):
+        #     if (i == 0):
+        #         # Sample F and h_m
+        #         Fh_tmp = sampler.sample_fh(self.B_max, len(data["data"]), data["data"], t_n, self.B_M, self.T_M, 
+        #                                     self.ETA, self.psi, self.chi, self.F_ref, self.h_ref, self.rng, 
+        #                                     temperature)
+        #         h_new = Fh_tmp[1:]
+        #         self.F_S = np.concatenate((self.F_S, np.asarray([Fh_tmp[0]])), axis=0)
+        #         self.H_M = np.vstack((self.H_M, h_new))
+        #     elif (i == 1):
+        #         # Sample b_m
+        #         b_new = sampler.sample_b(self.B_max, len(data["data"]), data["data"], t_n, self.B_M, self.H_M, 
+        #                                     self.T_M, self.F_S, self.ETA, self.gamma, self.rng, temperature)
+        #         self.B_M = np.vstack((self.B_M, b_new))
+        #     elif (i == 2):
+        #         # Sample t_m
+        #         t_new = sampler.sample_t(self.B_max, len(data["data"]), data["data"], t_n, self.B_M, self.H_M, 
+        #                                     self.T_M, self.F_S, self.ETA, self.rng, temperature)
+        #         self.T_M = np.vstack((self.T_M, t_new))
+        #     elif (i == 3):
+        #         # Sample eta
+        #         new_eta = sampler.sample_eta(self.B_max, len(data["data"]), data["data"], t_n, self.B_M, self.H_M, 
+        #                                         self.T_M, self.F_S, self.phi, self.eta_ref, self.rng, temperature)
+        #         self.ETA = np.concatenate((self.ETA, np.asarray([new_eta])), axis=0)
+
+
+
+
+
+
         # Main sampler
         for samp in range(num_samples):
             # Set temperature for simulated annealing if we are using it
@@ -342,20 +375,20 @@ class BNPStep:
                 if (i == 0):
                     # Sample F and h_m
                     Fh_tmp = sampler.sample_fh(self.B_max, len(data["data"]), data["data"], t_n, self.B_M, self.T_M, 
-                                               self.ETA, self.psi, self.chi, self.F_ref, self.h_ref, self.rng, 
-                                               temperature)
+                                                self.ETA, self.psi, self.chi, self.F_ref, self.h_ref, self.rng, 
+                                                temperature)
                     h_new = Fh_tmp[1:]
                     self.F_S = np.concatenate((self.F_S, np.asarray([Fh_tmp[0]])), axis=0)
                     self.H_M = np.vstack((self.H_M, h_new))
                 elif (i == 1):
                     # Sample b_m
                     b_new = sampler.sample_b(self.B_max, len(data["data"]), data["data"], t_n, self.B_M, self.H_M, 
-                                             self.T_M, self.F_S, self.ETA, self.gamma, self.rng, temperature)
+                                                self.T_M, self.F_S, self.ETA, self.gamma, self.rng, temperature)
                     self.B_M = np.vstack((self.B_M, b_new))
                 elif (i == 2):
                     # Sample t_m
                     t_new = sampler.sample_t(self.B_max, len(data["data"]), data["data"], t_n, self.B_M, self.H_M, 
-                                             self.T_M, self.F_S, self.ETA, self.rng, temperature)
+                                                self.T_M, self.F_S, self.ETA, self.rng, temperature)
                     self.T_M = np.vstack((self.T_M, t_new))
                 elif (i == 3):
                     # Sample eta
@@ -373,7 +406,7 @@ class BNPStep:
             if np.isnan(self.post[x]):
                 self.post[x] = -np.inf
 
-        
+
     def results_to_file(self,
                         outfile: str = 'output',
                         path = None,
@@ -784,6 +817,8 @@ class BNPStep:
         for plot in plot_type:
             if plot == 'step':
                 has_valid_plot_type = True
+            # elif plot == 'step_residual':
+            #     has_valid_plot_type = True
             elif plot == 'hist_step_height':
                 has_valid_plot_type = True
             elif plot == 'hist_dwell_time':
@@ -836,6 +871,195 @@ class BNPStep:
         b_clean, h_clean, t_clean, f_clean, eta_clean, post_clean = bnpa.remove_burn_in(self.B_M, self.H_M, self.T_M, self.F_S, self.ETA, self.post, burn_in_samples)
 
         for plot in plot_type:
+            # if (plot == 'step'):
+            #     # General figure setup
+            #     fig = plt.figure()
+
+            #     if plot_alt_results and len(alt_results) == 1:
+            #         gs1 = GridSpec(1, 1, bottom=0.8)  # For legend
+            #         ax0 = fig.add_subplot(gs1[0])
+            #         ax0.axis('off')
+            #         gs2 = GridSpec(1, 2, top=0.85, wspace=0.07, hspace=0.05)  # For actual plot
+            #         ax1 = fig.add_subplot(gs2[0])
+            #         ax2 = fig.add_subplot(gs2[1])
+            #     elif plot_alt_results and len(alt_results) == 2:
+            #         gs1 = GridSpec(1, 1, bottom=0.8)  # For legend
+            #         ax0 = fig.add_subplot(gs1[0])
+            #         ax0.axis('off')
+            #         gs2 = GridSpec(1, 3, top=0.85, wspace=0.07, hspace=0.05)  # For actual plot
+            #         ax1 = fig.add_subplot(gs2[0])
+            #         ax2 = fig.add_subplot(gs2[1])
+            #         ax3 = fig.add_subplot(gs2[2])
+            #     else:
+            #         gs1 = GridSpec(1, 1, bottom=0.8)  # For legend
+            #         ax0 = fig.add_subplot(gs1[0])
+            #         ax0.axis('off')
+            #         gs2 = GridSpec(1, 1, top=0.85, wspace=0.07, hspace=0.05)  # For actual plot
+            #         ax1 = fig.add_subplot(gs2[0])
+
+            #     fig.supxlabel(x_label, fontsize=font_size)
+            #     fig.supylabel(y_label, x=0.05, fontsize=font_size)
+
+            #     # Setup x-axis vectors for plotting
+            #     T = np.linspace(t_n[0], t_n[-1], len(self.dataset["data"]))
+                
+            #     # Find the MAP estimate for our step plot
+            #     map_index = np.argmax(post_clean)
+            #     step_data                 = bnpa.get_step_plot_data(b_clean , h_clean , t_clean , f_clean, t_n , self.B_max , t_n.size , map_index)
+            #     # Plot synthetic data
+            #     ax1.scatter(T, self.dataset["data"], alpha=0.7, color=datacolor, facecolors='none', marker='.')
+
+            #     # If we have ground truths, plot them
+            #     if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
+            #         if self.dataset["parameters"]["type"] == 'kv':
+            #             ground_times, ground_data = bnpa.generate_gt_step_plot_data(self.dataset["ground_truths"]["b_m"], self.dataset["ground_truths"]["h_m"], self.dataset["ground_truths"]["t_m"], self.dataset["parameters"]["f_back"], t_n, self.B_max)
+            #             ax1.stairs(ground_data, ground_times, baseline=None, color=gtcolor, linewidth=3.0, zorder=5.0)
+            #         if self.dataset["parameters"]["type"] == 'hmm':
+            #             ground_data = self.dataset["ground_truths"]["u"]
+            #             gt_times = np.asarray([0])
+            #             gt_times = np.append(gt_times, t_n)
+            #             ax1.stairs(ground_data, gt_times, baseline=None, color=gtcolor, linewidth=3.0, zorder=5.0)
+
+            #     # Plot discovered steps
+            #     ax1.stairs(step_data, np.insert(T,0,T[0]), baseline=None, color=learncolor, linewidth=3.0, zorder=10)
+
+            #     # Add subplot titles
+            #     # ax1.set_title('SNR = 2.0', font=fpath, fontsize=fntsize)
+                
+            #     # Configure axes
+            #     ax1.set_xticks([t_n[0], t_n[int(len(self.dataset["data"])/2)], t_n[-1]])
+            #     ax1.set_xticklabels([str(int(t_n[0])), str(int((t_n[int(len(self.dataset["data"])/2)]))), str(int(t_n[-1]))], fontsize=font_size)
+
+            #     # ax1.set_yticks([int(np.amin(sorted_data)), int((np.amax(sorted_data)+np.amin(sorted_data))/2), int(np.amax(sorted_data))])
+            #     # ax1.set_yticklabels([str(int(np.amin(sorted_data))), str(int((np.amax(sorted_data)+np.amin(sorted_data))/2)), str(int(np.amax(sorted_data)))], fontsize=font_size)
+
+            #     # If we also have alternative results, plot those and configure the axes.
+            #     if plot_alt_results:
+            #         if len(alt_results) == 1:
+            #             ax2.scatter(T, self.dataset["data"], alpha=0.7, color=datacolor, facecolors='none', marker='.')
+                        
+            #             # Alternative method plotting
+            #             if alt_results[0] == 'kv':
+            #                 plot_times, plot_heights = bnpa.generate_kv_step_plot_data(self.alt_method_results_kv["jump_times"], 
+            #                                                                         self.alt_method_results_kv["means"], 
+            #                                                                         self.alt_method_results_kv["background"], 
+            #                                                                         t_n)
+            #                 ax2.stairs(plot_heights, plot_times, baseline=None, color=alt_color1, linewidth=3.0, zorder=10)
+            #                 # Generate legend
+            #                 if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
+            #                     ax0.legend([Line2D([0], [0], color=gtcolor,lw=3.0),
+            #                                     Line2D([0], [0], color=learncolor,lw=3.0), Line2D([0], [0], color=alt_color1,lw=3.0),c],
+            #                                 ['Ground truth', 'BNP-Step', 'BIC', 'Data'], handler_map={mpatches.Circle: HandlerCircle()},
+            #                                 bbox_to_anchor=(0., 1.15, 1., .102), loc='lower center',
+            #                                         ncol=4, mode="none", borderaxespad=0., edgecolor=(1.0, 1.0, 1.0, 0.0), prop=fnt_mgr, borderpad=0.8)
+            #                 else:
+            #                     ax0.legend([Line2D([0], [0], color=learncolor,lw=3.0), Line2D([0], [0], color=alt_color1,lw=3.0), c],
+            #                             ['BNP-Step', 'BIC', 'Data'], handler_map={mpatches.Circle: HandlerCircle()},
+            #                             bbox_to_anchor=(0., 1.15, 1., .102), loc='lower center',
+            #                                     ncol=3, mode="none", borderaxespad=0., edgecolor=(1.0, 1.0, 1.0, 0.0), prop=fnt_mgr, borderpad=0.8)
+            #             elif alt_results[0] == 'ihmm':
+            #                 sampled_heights = self.alt_method_results_ihmm["mode_mean_traj"]
+            #                 sampled_times = t_n.copy()
+            #                 sampled_times = np.append(sampled_times, t_n[-1])
+            #                 ax2.stairs(sampled_heights, sampled_times, baseline=None, color=alt_color4, linewidth=3.0, zorder=10)
+            #                 # Generate legend
+            #                 if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
+            #                     ax0.legend([Line2D([0], [0], color=gtcolor,lw=3.0),
+            #                                     Line2D([0], [0], color=learncolor,lw=3.0), Line2D([0], [0], color=alt_color4,lw=3.0),c],
+            #                                 ['Ground truth', 'BNP-Step', 'iHMM', 'Data'], handler_map={mpatches.Circle: HandlerCircle()},
+            #                                 bbox_to_anchor=(0., 1.15, 1., .102), loc='lower center',
+            #                                         ncol=4, mode="none", borderaxespad=0., edgecolor=(1.0, 1.0, 1.0, 0.0), prop=fnt_mgr, borderpad=0.8)
+            #                 else:
+            #                     ax0.legend([Line2D([0], [0], color=learncolor,lw=3.0), Line2D([0], [0], color=alt_color4,lw=3.0), c],
+            #                             ['BNP-Step', 'iHMM', 'Data'], handler_map={mpatches.Circle: HandlerCircle()},
+            #                             bbox_to_anchor=(0., 1.15, 1., .102), loc='lower center',
+            #                                     ncol=3, mode="none", borderaxespad=0., edgecolor=(1.0, 1.0, 1.0, 0.0), prop=fnt_mgr, borderpad=0.8)
+            #             # Plot ground truths too if we have them
+            #             if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
+            #                 if self.dataset["parameters"]["type"] == 'kv':
+            #                     ground_times, ground_data = bnpa.generate_gt_step_plot_data(self.dataset["ground_truths"]["b_m"], self.dataset["ground_truths"]["h_m"], self.dataset["ground_truths"]["t_m"], self.dataset["parameters"]["f_back"], t_n, self.B_max)
+            #                     ax2.stairs(ground_data, ground_times, baseline=None, color=gtcolor, linewidth=3.0, zorder=5)
+            #                 if self.dataset["parameters"]["type"] == 'hmm':
+            #                     ground_data = self.dataset["ground_truths"]["u"]
+            #                     gt_times = np.asarray([0])
+            #                     gt_times = np.append(gt_times, t_n)
+            #                     ax2.stairs(ground_data, gt_times, baseline=None, color=gtcolor, linewidth=3.0, zorder=5.0)
+            #             # Configure axes
+            #             ax2.set_xticks([t_n[0], t_n[int(len(self.dataset["data"])/2)], t_n[-1]])
+            #             ax2.set_xticklabels([str(int(t_n[0])), str(int((t_n[int(len(self.dataset["data"])/2)]))), str(int(t_n[-1]))], fontsize=font_size)
+            #             ax2.set_yticks([int(np.amin(sorted_data)), int((np.amax(sorted_data)+np.amin(sorted_data))/2), int(np.amax(sorted_data))])
+            #             ax2.set_yticklabels(['', '', ''], fontsize=font_size)
+            #         elif len(alt_results) == 2:
+            #             ax2.scatter(T, self.dataset["data"], alpha=0.7, color=datacolor, facecolors='none', marker='.')
+            #             ax3.scatter(T, self.dataset["data"], alpha=0.7, color=datacolor, facecolors='none', marker='.')
+                        
+            #             # Plot KV first, then iHMM
+            #             plot_times, plot_heights = bnpa.generate_kv_step_plot_data(self.alt_method_results_kv["jump_times"], 
+            #                                                                         self.alt_method_results_kv["means"], 
+            #                                                                         self.alt_method_results_kv["background"], 
+            #                                                                         t_n)
+            #             ax2.stairs(plot_heights, plot_times, baseline=None, color=alt_color1, linewidth=3.0, zorder=10)
+
+            #             sampled_heights = self.alt_method_results_ihmm["mode_mean_traj"]
+            #             sampled_times = t_n.copy()
+            #             sampled_times = np.append(sampled_times, t_n[-1])
+            #             ax3.stairs(sampled_heights, sampled_times, baseline=None, color=alt_color4, linewidth=3.0, zorder=10)
+
+            #             # Generate legend
+            #             if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
+            #                     ax0.legend([Line2D([0], [0], color=gtcolor,lw=3.0),
+            #                                     Line2D([0], [0], color=learncolor,lw=3.0), Line2D([0], [0], color=alt_color1,lw=3.0), Line2D([0], [0], color=alt_color4,lw=3.0),c],
+            #                                 ['Ground truth', 'BNP-Step', 'BIC', 'iHMM', 'Data'], handler_map={mpatches.Circle: HandlerCircle()},
+            #                                 bbox_to_anchor=(0., 1.15, 1., .102), loc='lower center',
+            #                                         ncol=5, mode="none", borderaxespad=0., edgecolor=(1.0, 1.0, 1.0, 0.0), prop=fnt_mgr, borderpad=0.8)
+            #             else:
+            #                 ax0.legend([Line2D([0], [0], color=learncolor,lw=3.0), Line2D([0], [0], color=alt_color1,lw=3.0), Line2D([0], [0], color=alt_color4,lw=3.0), c],
+            #                         ['BNP-Step', 'BIC', 'iHMM', 'Data'], handler_map={mpatches.Circle: HandlerCircle()},
+            #                         bbox_to_anchor=(0., 1.15, 1., .102), loc='lower center',
+            #                                 ncol=4, mode="none", borderaxespad=0., edgecolor=(1.0, 1.0, 1.0, 0.0), prop=fnt_mgr, borderpad=0.8)
+                                
+            #             # Plot ground truths too if we have them
+            #             if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
+            #                 if self.dataset["parameters"]["type"] == 'kv':
+            #                     ground_times, ground_data = bnpa.generate_gt_step_plot_data(self.dataset["ground_truths"]["b_m"], self.dataset["ground_truths"]["h_m"], self.dataset["ground_truths"]["t_m"], self.dataset["parameters"]["f_back"], t_n, self.B_max)
+            #                     ax2.stairs(ground_data, ground_times, baseline=None, color=gtcolor, linewidth=3.0, zorder=5)
+            #                     ax3.stairs(ground_data, ground_times, baseline=None, color=gtcolor, linewidth=3.0, zorder=5)
+            #                 if self.dataset["parameters"]["type"] == 'hmm':
+            #                     ground_data = self.dataset["ground_truths"]["u"]
+            #                     gt_times = np.asarray([0])
+            #                     gt_times = np.append(gt_times, t_n)
+            #                     ax2.stairs(ground_data, gt_times, baseline=None, color=gtcolor, linewidth=3.0, zorder=5.0)
+            #                     ax3.stairs(ground_data, gt_times, baseline=None, color=gtcolor, linewidth=3.0, zorder=5.0)
+
+            #             # Configure axes
+            #             ax2.set_xticks([t_n[0], t_n[int(len(self.dataset["data"])/2)], t_n[-1]])
+            #             ax2.set_xticklabels([str(int(t_n[0])), str(int((t_n[int(len(self.dataset["data"])/2)]))), str(int(t_n[-1]))], fontsize=font_size)
+            #             ax2.set_yticks([int(np.amin(sorted_data)), int((np.amax(sorted_data)+np.amin(sorted_data))/2), int(np.amax(sorted_data))])
+            #             ax2.set_yticklabels(['', '', ''], fontsize=font_size)
+
+            #             ax3.set_xticks([t_n[0], t_n[int(len(self.dataset["data"])/2)], t_n[-1]])
+            #             ax3.set_xticklabels([str(int(t_n[0])), str(int((t_n[int(len(self.dataset["data"])/2)]))), str(int(t_n[-1]))], fontsize=font_size)
+            #             ax3.set_yticks([int(np.amin(sorted_data)), int((np.amax(sorted_data)+np.amin(sorted_data))/2), int(np.amax(sorted_data))])
+            #             ax3.set_yticklabels(['', '', ''], fontsize=font_size)
+            #     else:
+            #         # Configure legend
+            #         if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
+            #             ax0.legend([Line2D([0], [0], color=gtcolor,lw=3.0),
+            #                             Line2D([0], [0], color=learncolor,lw=3.0),c],
+            #                         ['Ground truth', 'BNP-Step', 'Data'], handler_map={mpatches.Circle: HandlerCircle()},
+            #                         bbox_to_anchor=(0., 1.15, 1., .102), loc='lower center',
+            #                                 ncol=3, mode="none", borderaxespad=0., edgecolor=(1.0, 1.0, 1.0, 0.0), prop=fnt_mgr, borderpad=0.8)
+            #         else:
+            #             ax0.legend([Line2D([0], [0], color=learncolor,lw=3.0), c],
+            #                     ['BNP-Step', 'Data'], handler_map={mpatches.Circle: HandlerCircle()},
+            #                     bbox_to_anchor=(0., 1.15, 1., .102), loc='lower center',
+            #                             ncol=2, mode="none", borderaxespad=0., edgecolor=(1.0, 1.0, 1.0, 0.0), prop=fnt_mgr, borderpad=0.8)
+
+            #     # Show plot, then save figure
+            #     plt.show()
+            #     # TODO: add user option to generate figure type other than pdf
+            #     output_filename = fig_savename + '_' + plot + '.pdf'
+            #     fig.savefig(output_filename, format='pdf')
             if (plot == 'step'):
                 # General figure setup
                 fig = plt.figure()
@@ -868,11 +1092,19 @@ class BNPStep:
                 # Setup x-axis vectors for plotting
                 T = np.linspace(t_n[0], t_n[-1], len(self.dataset["data"]))
                 
+                samples  = np.array([[0.0, 0.0], [0.0, 0.0]])
                 # Find the MAP estimate for our step plot
-                map_index = np.argmax(post_clean)
-                step_data                 = bnpa.get_step_plot_data(b_clean , h_clean , t_clean , f_clean, t_n , self.B_max , t_n.size , map_index)
+                map_index_list = np.argsort(post_clean)[-1000:]
+                for map_index in map_index_list:
+                    step_data                 = bnpa.get_step_plot_data(b_clean , h_clean , t_clean , f_clean, t_n , self.B_max , t_n.size , map_index)
+                    samples = np.append(samples,np.squeeze([T,step_data]).T,axis=0)
+                samples = samples[2:,:]
+                # Plot discovered steps
+                ax1.hist2d(samples[:,0],samples[:,1],bins = 50,cmap = 'Blues')
                 # Plot synthetic data
                 ax1.scatter(T, self.dataset["data"], alpha=0.7, color=datacolor, facecolors='none', marker='.')
+                ax1.stairs(step_data, np.insert(T,0,T[0]), baseline=None, color=learncolor, linewidth=1.0, zorder=10)
+
 
                 # If we have ground truths, plot them
                 if (self.dataset["ground_truths"] is not None) and (self.dataset["parameters"] is not None):
@@ -885,8 +1117,6 @@ class BNPStep:
                         gt_times = np.append(gt_times, t_n)
                         ax1.stairs(ground_data, gt_times, baseline=None, color=gtcolor, linewidth=3.0, zorder=5.0)
 
-                # Plot discovered steps
-                ax1.stairs(step_data, np.insert(T,0,T[0]), baseline=None, color=learncolor, linewidth=3.0, zorder=10)
 
                 # Add subplot titles
                 # ax1.set_title('SNR = 2.0', font=fpath, fontsize=fntsize)
@@ -1025,7 +1255,6 @@ class BNPStep:
                 # TODO: add user option to generate figure type other than pdf
                 output_filename = fig_savename + '_' + plot + '.pdf'
                 fig.savefig(output_filename, format='pdf')
-                
             elif (plot == 'hist_step_height'):
                 # General figure setup
                 fig = plt.figure()
