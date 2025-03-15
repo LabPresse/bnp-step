@@ -1,0 +1,9 @@
+*.csv
+
+*.pdf
+
+*.pkl
+
+yovan_data/
+
+matfiles/
