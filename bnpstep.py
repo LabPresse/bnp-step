@@ -26,7 +26,9 @@ from matplotlib.gridspec import GridSpec
 
 
 def step_kernel(t: np.ndarray, d : float):
-    slope = 0.25
+    frac = (53*24) / (53*24 + 3861)
+    
+    slope = 1/(d*frac)
     y = t*1.0*slope
     y[t > 1/slope] = 1
     y[(0 > t) | (t > d)] = 0
