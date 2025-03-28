@@ -25,14 +25,15 @@ from matplotlib.gridspec import GridSpec
 
 
 
-def step_kernel(t: np.ndarray, d : float):
-    frac = (53*24) / (53*24 + 3861)
+def step_kernel(t: np.ndarray, d : float,frac:float):
     
     slope = 1/(d*frac)
     y = t*1.0*slope
     y[t > 1/slope] = 1
     y[(0 > t) | (t > d)] = 0
     return y
+
+
 def heav_kernel(t : np.ndarray, d :list = [], slope:list = []):
     return np.heaviside(-1 * t,np.ones(np.shape(t)))
 
@@ -58,7 +59,7 @@ def heav_kernel(t : np.ndarray, d :list = [], slope:list = []):
 class BNPStep:
     def __init__(self, 
                  chi: float = 0.028, 
-                 dt_ref: float = 20.0,
+                 dt_ref: float = 100.0,
                  h_ref: float = 10.0, 
                  psi: float = 0.0028, 
                  F_ref: float = 0.0, 
@@ -234,7 +235,7 @@ class BNPStep:
         # Data type validation
         if not isinstance(data_type, str):
             raise TypeError(f"data_type should be of type str instead of {type(data_type)}")
-        if data_type != 'experimental' and data_type != 'synthetic':
+        if data_type != 'experimental' and data_type != 'synthetic' and data_type != 'garcia':
             warnings.warn(f"data_type must be either 'experimental', or 'synthetic', got unknown option {data_type}. Defaulting to 'experimental'.", UserWarning)
             data_type = 'experimental'
         
@@ -244,8 +245,9 @@ class BNPStep:
         if not isinstance(data_format, str):
             raise TypeError(f"data_format should be of type str instead of {type(data_format)}")
         if data_format != 'hmm' and data_format != 'kv' and data_format != 'expt' and data_format != 'user':
-            warnings.warn(f"Unknown data type {data_format} detected. Defaulting to 'user'.", UserWarning)
-            data_format = 'user'
+            if not data_type == 'garcia':
+                warnings.warn(f"Unknown data type {data_format} detected. Defaulting to 'user'.", UserWarning)
+                data_format = 'user'
         
         # Validate has_timepoints
         if not isinstance(has_timepoints, bool):
@@ -268,12 +270,14 @@ class BNPStep:
         else:
             if data_type == 'experimental':
                 self.dataset = bnpi.load_data_csv(filename, has_timepoints)
+            elif data_type == 'garcia':
+                self.dataset = bnpi.load_data_garcia(filename,data_format)
             else:
                 if data_format == 'hmm':
                     self.dataset = bnpi.load_data_HMM(filename)
                 else:
                     self.dataset = bnpi.load_data_csv(filename, has_timepoints)
-        
+            
         if not isinstance(kernel_type, str):
             raise TypeError(f"kernel should be of type str instead of {type(kernel_type)}")
         else:

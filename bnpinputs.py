@@ -4,7 +4,93 @@ bnpinputs: Contains all functions that load data sets for BNP-Step.
 import os
 import numpy as np
 import pandas as pd
+import ast
+import re
 
+def clean_and_parse(column):
+    """
+    Cleans and converts a column containing mixed newline and space-delimited lists into numpy arrays.
+    """
+    def parse_value(x):
+        x_in = x
+        if isinstance(x, str) and x.startswith("["):
+            try:
+                x = x_in
+                # Standardize delimiters: replace newlines with spaces, remove extra spaces
+                x = re.sub(r"[\s\n]+", " ", x.strip())  
+                try:
+                    return np.array(ast.literal_eval(x), dtype=float)  # Convert string to list, then to np.array
+                except (ValueError, SyntaxError):
+                    raise ValueError(f"Malformed list format: {x}")
+            except:
+                x = x_in
+                # Standardize delimiters: replace newlines with spaces, remove extra spaces
+                x = re.sub(r',','',re.sub(r"[\s\n]+", ",", x.strip())  ,1)
+                try:
+                    return np.array(ast.literal_eval(x), dtype=float)  # Convert string to list, then to np.array
+                except (ValueError, SyntaxError):
+                    raise ValueError(f"Malformed list format: {x}")
+        else:
+            try:
+                return float(x)
+            except ValueError:
+                raise ValueError(f"Expected a number but got: {x}")
+
+    return column.apply(parse_value)
+
+def load_data_garcia(filename: str, data_format: str, path=None):
+    """
+    Loads a specific trace from a CSV file based on the given model type and iteration.
+
+    Arguments:
+    filename (str) -- Name of the CSV file (without extension).
+    data_format (str) -- A two-character string specifying the model type and iteration (e.g., 'B1', '0R').
+    path -- Path to the file. If None, assumes the file is in the current directory. Default: None.
+
+    Returns:
+    Dictionary containing:
+    - 'data' (numpy array): The extracted trace values.
+    - 'times' (numpy array): The corresponding time points.
+    - 'nu_vec' (numpy array): The associated nu values (if present).
+    - 'ground_truths' (None)
+    - 'parameters' (None)
+    """
+    if not isinstance(filename, str):
+        raise TypeError(f"filename should be of type str, got {type(filename)}")
+    if not isinstance(data_format, str) or len(data_format) != 2:
+        raise ValueError("data_format must be a string of length 2 (e.g., 'B1', '0R').")
+
+    # Construct full file path
+    full_name = filename + ".csv"
+    full_path = os.path.join(path, full_name) if path else full_name
+
+    # Load CSV into Pandas DataFrame
+    df = pd.read_csv(full_path, dtype=str)  # Read everything as strings to avoid misinterpretation
+
+    # Detect correct column names (handling different capitalizations)
+    model_col = next((col for col in ["model", "Model"] if col in df.columns), None)
+    iteration_col = next((col for col in ["iteration", "Iteration"] if col in df.columns), None)
+
+    if model_col is None or iteration_col is None:
+        raise ValueError("CSV must contain either 'model' or 'Model' and 'iteration' or 'Iteration' columns.")
+
+    # Extract the specific trace using detected column names
+    subset = df[(df[model_col] == data_format[0]) & (df[iteration_col] == data_format[1])]
+
+    if subset.empty:
+        raise ValueError(f"No data found for model {data_format[0]} and iteration {data_format[1]}.")
+
+    # Convert relevant columns using `clean_and_parse`
+    dataset = {
+        "data": clean_and_parse(subset["trace_au"]).to_numpy()[0] ,
+        "times": clean_and_parse(subset["time"]).to_numpy()[0],
+        "nu_vec": clean_and_parse(subset["error"]).to_numpy()[0] if "error" in df.columns else None,
+        "ground_truths": None,
+        "parameters": None,
+    }
+    dataset["data"] = dataset["data"] + np.random.poisson(75,dataset["data"].shape)
+    dataset["nu_vec"] = 1/ (dataset["nu_vec"] + 75)
+    return dataset
 
 def load_data_txt(filename: str, 
                   has_timepoints: bool, 
